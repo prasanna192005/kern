@@ -3,6 +3,8 @@ import { Space_Grotesk, Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
+import { ContextMenuProvider } from "@/context/ContextMenuContext";
+import { ContextMenu } from "@/components/ContextMenu";
 import LayoutWrapper from "@/components/LayoutWrapper";
 
 const spaceGrotesk = Space_Grotesk({
@@ -27,12 +29,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${spaceGrotesk.variable} ${inter.variable} h-full antialiased`}>
-      <body className="font-sans min-h-screen bg-background text-foreground selection:bg-primary/30">
+      <body className="font-sans min-h-screen bg-background text-foreground selection:bg-primary/30 overflow-x-hidden">
         <ThemeProvider>
           <AuthProvider>
-            <LayoutWrapper>
-              {children}
-            </LayoutWrapper>
+            <ContextMenuProvider>
+              <LayoutWrapper>
+                {children}
+              </LayoutWrapper>
+              <ContextMenu />
+            </ContextMenuProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

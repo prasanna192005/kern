@@ -8,7 +8,7 @@ import {
   Plus, 
   Search, 
   Trash2, 
-  Copy, 
+  Copy as CopyIcon, 
   ExternalLink,
   PlusCircle,
   FolderOpen,
@@ -17,7 +17,8 @@ import {
   Table,
   Presentation,
   Database,
-  Link as LinkIconAlt
+  Link as LinkIconAlt,
+  Edit2
 } from "lucide-react";
 import { 
   collection, 
@@ -32,6 +33,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
+import { useContextMenu } from "@/context/ContextMenuContext";
 
 const typeStyles = {
   Sheet: { color: "#16A34A", icon: Table },
@@ -45,8 +47,10 @@ const typeStyles = {
 export default function DrivePage() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const { showMenu } = useContextMenu();
   
   const [items, setItems] = useState<any[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
   const [modalState, setModalState] = useState<{ isOpen: boolean; mode: "add" | "edit"; item?: any }>({
     isOpen: false,
     mode: "add",
@@ -54,7 +58,7 @@ export default function DrivePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const [form, setForm] = useState({ title: "", url: "", projectTag: "General", type: "Doc", notes: "" });
+  const [form, setForm] = useState({ title: "", url: "", projectTag: "General", type: "Doc", notes: "", projectId: "" });
 
   useEffect(() => {
     if (!loading && !user) router.push("/login");
@@ -63,10 +67,16 @@ export default function DrivePage() {
   useEffect(() => {
     if (user) {
       const q = query(collection(db, `users/${user.uid}/drive`), orderBy("createdAt", "desc"));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      const unsubscribeDrive = onSnapshot(q, (snapshot) => {
         setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       });
-      return () => unsubscribe();
+
+      const pq = query(collection(db, `users/${user.uid}/projects`), orderBy("name", "asc"));
+      const unsubscribeProjects = onSnapshot(pq, (snapshot) => {
+        setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      });
+
+      return () => { unsubscribeDrive(); unsubscribeProjects(); };
     }
   }, [user]);
 
@@ -86,7 +96,7 @@ export default function DrivePage() {
       });
     }
 
-    setForm({ title: "", url: "", projectTag: "General", type: "Doc", notes: "" });
+    setForm({ title: "", url: "", projectTag: "General", type: "Doc", notes: "", projectId: "" });
     setModalState({ isOpen: false, mode: "add" });
   };
 
@@ -137,7 +147,7 @@ export default function DrivePage() {
           </div>
           <button 
             onClick={() => {
-              setForm({ title: "", url: "", projectTag: "General", type: "Doc", notes: "" });
+              setForm({ title: "", url: "", projectTag: "General", type: "Doc", notes: "", projectId: "" });
               setModalState({ isOpen: true, mode: "add" });
             }}
             className="bg-foreground text-background px-5 py-2.5 rounded-xl text-sm font-bold shadow-soft hover:bg-primary hover:text-primary-foreground transition-all flex items-center gap-2"
@@ -161,8 +171,21 @@ export default function DrivePage() {
              <div className="bg-zinc-900/20 border border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
                 <div className="divide-y divide-zinc-800">
                   {groupItems.map((item: any) => (
-                    <div key={item.id} className="flex items-center gap-6 px-8 py-5 hover:bg-zinc-900/40 transition-colors group">
-                       <TypeIcon type={item.type} />
+                    <div 
+                      key={item.id} 
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        showMenu(e.clientX, e.clientY, [
+                          { label: "Copy Resource URL", icon: <CopyIcon size={14} />, onClick: () => navigator.clipboard.writeText(item.url) },
+                          { label: "Edit Metadata", icon: <Edit2 size={14} />, onClick: () => {
+                             setForm({ title: item.title, url: item.url, projectTag: item.projectTag || "General", type: item.type || "Doc", notes: item.notes || "", projectId: item.projectId || "" });
+                             setModalState({ isOpen: true, mode: "edit", item });
+                          } },
+                          { label: "Terminate Reference", icon: <Trash2 size={14} />, variant: "destructive", onClick: () => deleteItem(item.id) },
+                        ], item.title || "Resource");
+                      }}
+                      className="flex items-center gap-6 px-8 py-5 hover:bg-zinc-900/40 transition-colors group cursor-context-menu"
+                    >
                        <div className="flex-1 min-w-0">
                           <h4 className="font-semibold text-base text-zinc-100 truncate">{item.title}</h4>
                           {item.notes && <p className="text-xs text-zinc-500 mt-1">{item.notes}</p>}
@@ -174,7 +197,7 @@ export default function DrivePage() {
                             onClick={() => copyToClipboard(item.url, item.id)}
                             className="p-2 rounded-lg border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-all flex items-center gap-2"
                           >
-                             {copiedId === item.id ? <Check size={14} className="text-primary" /> : <Copy size={14} />}
+                             {copiedId === item.id ? <Check size={14} className="text-primary" /> : <CopyIcon size={14} />}
                              <span className="text-[10px] font-bold uppercase tracking-widest">{copiedId === item.id ? "Copied" : "Copy"}</span>
                           </button>
                           
@@ -189,7 +212,7 @@ export default function DrivePage() {
 
                           <button 
                             onClick={() => {
-                               setForm({ title: item.title, url: item.url, projectTag: item.projectTag || "General", type: item.type || "Doc", notes: item.notes || "" });
+                               setForm({ title: item.title, url: item.url, projectTag: item.projectTag || "General", type: item.type || "Doc", notes: item.notes || "", projectId: item.projectId || "" });
                                setModalState({ isOpen: true, mode: "edit", item });
                             }}
                             className="p-2.5 rounded-lg border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800 text-zinc-600 hover:text-white opacity-0 group-hover:opacity-100 transition-all font-bold text-[10px] uppercase tracking-widest"
@@ -274,13 +297,18 @@ export default function DrivePage() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 mb-2 block font-mono">_project_tag</label>
-                    <input 
-                      className="w-full bg-zinc-950/50 border border-zinc-800 rounded-2xl px-6 py-4 outline-none focus:border-primary/50 transition-all font-medium text-sm text-white placeholder:text-zinc-800"
-                      placeholder="e.g. MARKETING"
-                      value={form.projectTag}
-                      onChange={e => setForm({...form, projectTag: e.target.value.toUpperCase()})}
-                    />
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 mb-2 block font-mono">_associate_project</label>
+                    <select 
+                      className="w-full bg-zinc-950/50 border border-zinc-800 rounded-2xl px-6 py-4 outline-none focus:border-primary/50 transition-all font-medium text-sm text-white appearance-none cursor-pointer"
+                      value={form.projectId}
+                      onChange={e => {
+                        const p = projects.find(proj => proj.id === e.target.value);
+                        setForm({...form, projectId: e.target.value, projectTag: p ? p.name.toUpperCase() : "GENERAL"});
+                      }}
+                    >
+                      <option value="">No Project</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
                   </div>
                 </div>
                 <div>

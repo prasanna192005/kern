@@ -13,7 +13,10 @@ import {
   StickyNote,
   ArrowUpRight,
   Search,
-  HardDrive
+  HardDrive,
+  Copy as CopyIcon,
+  Edit2,
+  Trash2
 } from "lucide-react";
 import { 
   collection, 
@@ -23,11 +26,13 @@ import {
   onSnapshot, 
   where,
   updateDoc,
+  deleteDoc,
   doc,
   addDoc,
   serverTimestamp 
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useContextMenu } from "@/context/ContextMenuContext";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -36,6 +41,7 @@ import LandingPage from "@/components/LandingPage";
 export default function Dashboard() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const { showMenu } = useContextMenu();
   const [recentTodos, setRecentTodos] = useState<any[]>([]);
   const [todoStats, setTodoStats] = useState({ total: 0, done: 0 });
   const [pinnedLinks, setPinnedLinks] = useState<any[]>([]);
@@ -173,33 +179,41 @@ export default function Dashboard() {
         </motion.form>
 
         {/* Professional Bento Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 auto-rows-[140px] lg:auto-rows-[160px] gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 auto-rows-[130px] lg:auto-rows-[150px] gap-6">
           
           {/* VAULT: Resource Links (Left Side) */}
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="lg:col-span-6 lg:row-span-2 glass-card rounded-3xl p-8 flex flex-col gap-8 border border-zinc-800/80"
+            className="lg:col-span-6 lg:row-span-1 glass-card rounded-3xl p-6 flex flex-col gap-4 border border-zinc-800/80 overflow-hidden"
           >
             <div className="flex items-center justify-between">
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Pinned Resources</h2>
               <span className="text-[10px] font-black tabular-nums text-accent">{pinnedLinks.length} items</span>
             </div>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 lg:grid-cols-6 gap-2">
                {pinnedLinks.slice(0, 6).map((link, i) => (
-                 <a 
-                   key={link.id} href={link.url} target="_blank" rel="noopener noreferrer"
-                   className="glass-card rounded-2xl p-4 flex flex-col items-center justify-center gap-2 hover:border-primary/30 transition-all group overflow-hidden"
-                 >
-                    <div className="w-10 h-10 rounded-xl bg-zinc-950/50 border border-zinc-800/50 flex items-center justify-center group-hover:bg-primary/5 transition-all">
-                       <img src={`https://www.google.com/s2/favicons?sz=64&domain=${new URL(link.url).hostname}`} alt="" className="w-5 h-5 grayscale group-hover:grayscale-0 transition-all opacity-40 group-hover:opacity-100" />
-                    </div>
-                    <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-700 group-hover:text-zinc-400 truncate w-full text-center transition-all">{link.title}</span>
-                 </a>
+                  <a 
+                    key={link.id} href={link.url} target="_blank" rel="noopener noreferrer"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      showMenu(e.clientX, e.clientY, [
+                        { label: "Copy Link", icon: <CopyIcon size={14} />, onClick: () => navigator.clipboard.writeText(link.url) },
+                        { label: "Terminate Reference", icon: <Trash2 size={14} />, variant: "destructive", onClick: async () => {
+                           if (user) await deleteDoc(doc(db, `users/${user.uid}/links`, link.id));
+                        } },
+                      ], link.title || "Vault Resource");
+                    }}
+                    className="glass-card rounded-xl p-3 flex flex-col items-center justify-center gap-2 border border-zinc-800/50 group overflow-hidden cursor-context-menu"
+                  >
+                     <div className="w-8 h-8 rounded-lg bg-zinc-950/50 border border-zinc-800/50 flex items-center justify-center">
+                        <img src={`https://www.google.com/s2/favicons?sz=64&domain=${new URL(link.url).hostname}`} alt="" className="w-4 h-4 opacity-60" />
+                     </div>
+                  </a>
                ))}
                {!pinnedLinks.length && (
-                  <div className="col-span-full py-8 text-center text-[10px] font-bold uppercase tracking-widest text-zinc-800">No pinned items</div>
+                  <div className="col-span-full py-4 text-center text-[10px] font-bold uppercase tracking-widest text-zinc-800">No pinned items</div>
                )}
             </div>
           </motion.div>
@@ -243,7 +257,16 @@ export default function Dashboard() {
                      animate={{ opacity: 1, x: 0 }}
                      transition={{ delay: 0.2 + i * 0.05 }}
                      onClick={() => toggleTodoDone(todo)}
-                     className="flex items-center gap-4 p-4 rounded-2xl bg-zinc-900/10 border border-zinc-800/30 hover:bg-zinc-800/20 hover:border-zinc-700/50 transition-all cursor-pointer group/item"
+                     onContextMenu={(e) => {
+                       e.preventDefault();
+                       showMenu(e.clientX, e.clientY, [
+                         { label: todo.done ? "Mark Incomplete" : "Mark Completed", onClick: () => toggleTodoDone(todo) },
+                         { label: "Terminate Objective", icon: <Trash2 size={14} />, variant: "destructive", onClick: async () => {
+                            if (user) await deleteDoc(doc(db, `users/${user.uid}/todos`, todo.id));
+                         } },
+                       ], todo.title || "Task Objective");
+                     }}
+                     className="flex items-center gap-4 p-4 rounded-2xl bg-zinc-900/10 border border-zinc-800/30 hover:bg-zinc-800/20 hover:border-zinc-700/50 transition-all cursor-pointer group/item cursor-context-menu"
                    >
                       <div className="w-5 h-5 rounded-full border border-zinc-800 flex items-center justify-center group-hover/item:border-primary transition-all shrink-0">
                          <div className="w-1.5 h-1.5 rounded-full bg-transparent group-hover/item:bg-primary" />
@@ -284,7 +307,19 @@ export default function Dashboard() {
             </div>
             <div className="space-y-2">
               {recentDrive.length > 0 ? recentDrive.map(file => (
-                <a key={file.id} href={file.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800/20 transition-all group">
+                <a 
+                  key={file.id} href={file.url} target="_blank" rel="noopener noreferrer" 
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    showMenu(e.clientX, e.clientY, [
+                      { label: "Copy File URL", icon: <CopyIcon size={14} />, onClick: () => navigator.clipboard.writeText(file.url) },
+                      { label: "Terminate Reference", icon: <Trash2 size={14} />, variant: "destructive", onClick: async () => {
+                         if (user) await deleteDoc(doc(db, `users/${user.uid}/drive`, file.id));
+                      } },
+                    ], file.title || "Drive Resource");
+                  }}
+                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800/20 transition-all group cursor-context-menu"
+                >
                   <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center">
                     <HardDrive size={14} className="text-zinc-600 group-hover:text-zinc-400" />
                   </div>
@@ -295,7 +330,7 @@ export default function Dashboard() {
               )}
             </div>
           </motion.div>
-
+          
           {/* NOTES ARCHIVE (Bottom) */}
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
@@ -310,9 +345,21 @@ export default function Dashboard() {
                </Link>
             </div>
             
-            <div className="flex-1 flex gap-6">
+            <div className="flex-1 flex gap-6 overflow-x-auto custom-scrollbar-hidden">
                {recentNotes.map((note) => (
-                 <div key={note.id} className="flex-1 p-6 rounded-2xl bg-zinc-900/20 border border-zinc-800/50 hover:border-zinc-700 transition-all min-w-[280px]">
+                 <div 
+                   key={note.id} 
+                   onContextMenu={(e) => {
+                     e.preventDefault();
+                     showMenu(e.clientX, e.clientY, [
+                       { label: "Copy Objective", icon: <CopyIcon size={14} />, onClick: () => navigator.clipboard.writeText(note.content) },
+                       { label: "Terminate Knowledge", icon: <Trash2 size={14} />, variant: "destructive", onClick: async () => {
+                          if (user) await deleteDoc(doc(db, `users/${user.uid}/notes`, note.id));
+                       } },
+                     ], "Knowledge Node");
+                   }}
+                   className="flex-1 p-6 rounded-2xl bg-zinc-900/20 border border-zinc-800/50 hover:border-zinc-700 transition-all min-w-[280px] cursor-context-menu"
+                 >
                     <p className="text-sm text-zinc-400 line-clamp-2 leading-relaxed">
                        {note.content}
                     </p>

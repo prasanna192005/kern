@@ -29,12 +29,16 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
+import { useContextMenu } from "@/context/ContextMenuContext";
+import { Copy as CopyIcon } from "lucide-react";
 
 export default function LinksPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const { showMenu } = useContextMenu();
   
   const [links, setLinks] = useState<any[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
   const [activeTag, setActiveTag] = useState("All");
   const [modalState, setModalState] = useState<{ isOpen: boolean; mode: "add" | "edit"; link?: any }>({
     isOpen: false,
@@ -42,7 +46,7 @@ export default function LinksPage() {
   });
   const [searchQuery, setSearchQuery] = useState("");
 
-  const [form, setForm] = useState({ title: "", url: "", category: "General", description: "" });
+  const [form, setForm] = useState({ title: "", url: "", category: "General", description: "", projectId: "" });
 
   useEffect(() => {
     if (!loading && !user) router.push("/login");
@@ -51,10 +55,16 @@ export default function LinksPage() {
   useEffect(() => {
     if (user) {
       const q = query(collection(db, `users/${user.uid}/links`), orderBy("createdAt", "desc"));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      const unsubscribeLinks = onSnapshot(q, (snapshot) => {
         setLinks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       });
-      return () => unsubscribe();
+
+      const pq = query(collection(db, `users/${user.uid}/projects`), orderBy("name", "asc"));
+      const unsubscribeProjects = onSnapshot(pq, (snapshot) => {
+        setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      });
+
+      return () => { unsubscribeLinks(); unsubscribeProjects(); };
     }
   }, [user]);
 
@@ -80,7 +90,7 @@ export default function LinksPage() {
       });
     }
 
-    setForm({ title: "", url: "", category: "General", description: "" });
+    setForm({ title: "", url: "", category: "General", description: "", projectId: "" });
     setModalState({ isOpen: false, mode: "add" });
   };
 
@@ -126,7 +136,7 @@ export default function LinksPage() {
           </div>
           <button 
             onClick={() => {
-              setForm({ title: "", url: "", category: "General", description: "" });
+              setForm({ title: "", url: "", category: "General", description: "", projectId: "" });
               setModalState({ isOpen: true, mode: "add" });
             }}
             className="bg-foreground text-background px-5 py-2.5 rounded-xl text-sm font-bold shadow-soft hover:bg-primary hover:text-primary-foreground transition-all flex items-center gap-2"
@@ -165,8 +175,20 @@ export default function LinksPage() {
               onTogglePin={() => togglePin(link)} 
               onDelete={() => deleteLink(link.id)} 
               onEdit={() => {
-                setForm({ title: link.title, url: link.url, category: link.category || "General", description: link.description || "" });
+                setForm({ title: link.title, url: link.url, category: link.category || "General", description: link.description || "", projectId: link.projectId || "" });
                 setModalState({ isOpen: true, mode: "edit", link });
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                showMenu(e.clientX, e.clientY, [
+                  { label: "Copy Link", icon: <CopyIcon size={14} />, onClick: () => navigator.clipboard.writeText(link.url) },
+                  { label: "Edit Resource", icon: <Edit2 size={14} />, onClick: () => {
+                    setForm({ title: link.title, url: link.url, category: link.category || "General", description: link.description || "", projectId: link.projectId || "" });
+                    setModalState({ isOpen: true, mode: "edit", link });
+                  } },
+                  { label: link.pinned ? "Unpin Reference" : "Pin Reference", icon: <Pin size={14} />, onClick: () => togglePin(link) },
+                  { label: "Delete Resource", icon: <Trash2 size={14} />, variant: "destructive", onClick: () => deleteLink(link.id) },
+                ], link.title || "Link System");
               }}
             />
           ))}
@@ -222,14 +244,27 @@ export default function LinksPage() {
                     onChange={e => setForm({...form, title: e.target.value})}
                   />
                 </div>
-                <div>
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block font-mono">_tag_category</label>
-                  <input 
-                    className="w-full bg-zinc-950/50 border border-zinc-800 rounded-2xl px-6 py-4 outline-none focus:border-primary/50 transition-all font-medium text-sm text-white placeholder:text-zinc-800"
-                    placeholder="e.g. Reference"
-                    value={form.category}
-                    onChange={e => setForm({...form, category: e.target.value})}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block font-mono">_tag_category</label>
+                    <input 
+                      className="w-full bg-zinc-950/50 border border-zinc-800 rounded-2xl px-6 py-4 outline-none focus:border-primary/50 transition-all font-medium text-sm text-white placeholder:text-zinc-800"
+                      placeholder="e.g. Reference"
+                      value={form.category}
+                      onChange={e => setForm({...form, category: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block font-mono">_associate_project</label>
+                    <select 
+                      className="w-full bg-zinc-950/50 border border-zinc-800 rounded-2xl px-6 py-4 outline-none focus:border-primary/50 transition-all font-medium text-sm text-white appearance-none cursor-pointer"
+                      value={form.projectId}
+                      onChange={e => setForm({...form, projectId: e.target.value})}
+                    >
+                      <option value="">No Project</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
                 </div>
                 <div className="flex gap-4 pt-6">
                   <button type="button" onClick={() => setModalState({ isOpen: false, mode: "add" })} className="flex-1 py-5 text-[11px] font-bold uppercase tracking-widest text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/50 rounded-2xl transition-all">Discard</button>
@@ -246,7 +281,7 @@ export default function LinksPage() {
   );
 }
 
-function LinkCard({ link, onTogglePin, onDelete, onEdit }: { link: any, onTogglePin: () => void, onDelete: () => void, onEdit: () => void }) {
+function LinkCard({ link, onTogglePin, onDelete, onEdit, onContextMenu }: { link: any, onTogglePin: () => void, onDelete: () => void, onEdit: () => void, onContextMenu: (e: React.MouseEvent) => void }) {
   const faviconUrl = `https://www.google.com/s2/favicons?sz=64&domain=${new URL(link.url).hostname}`;
 
   return (
@@ -255,13 +290,19 @@ function LinkCard({ link, onTogglePin, onDelete, onEdit }: { link: any, onToggle
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.98 }}
-      className="bg-zinc-900/50 p-5 rounded-2xl border border-zinc-800 hover:border-zinc-700 hover:shadow-xl transition-all group flex flex-col gap-5"
+      onContextMenu={onContextMenu}
+      className="bg-zinc-900/50 p-5 rounded-2xl border border-zinc-800 hover:border-zinc-700 hover:shadow-xl transition-all group flex flex-col gap-5 relative overflow-hidden cursor-context-menu"
     >
       <div className="flex items-center justify-between">
         <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center p-2 shrink-0 shadow-sm overflow-hidden">
           <img src={faviconUrl} alt="" className="w-6 h-6 object-contain" onError={(e) => (e.currentTarget.src = "/globe.png")} />
         </div>
         <div className="flex items-center gap-2">
+            {link.projectId && (
+              <span className="px-2 py-0.5 rounded-md bg-primary/10 text-primary text-[8px] font-black uppercase tracking-widest border border-primary/20">
+                PROJ_LINK
+              </span>
+            )}
             <span className="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-400 text-[9px] font-bold uppercase tracking-widest border border-zinc-700/50">
               {link.category || 'GENERAL'}
             </span>
