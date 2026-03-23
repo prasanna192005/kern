@@ -55,6 +55,8 @@ export default function LinksPage() {
   const { showToast } = useToast();
   const { copyRef } = useLinking();
   const [hoveredLink, setHoveredLink] = useState<any>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   const deleteLinkFunc = async (id: string) => {
     if (!user) return;
@@ -154,6 +156,20 @@ export default function LinksPage() {
     showToast("Resource Terminated", "error");
   };
 
+  const handleInlineSave = async (id: string) => {
+    if (!user || !editValue.trim()) {
+      setEditingId(null);
+      return;
+    }
+    try {
+      await updateDoc(doc(db, `users/${user.uid}/links`, id), { title: editValue.trim() });
+      setEditingId(null);
+      showToast("Resource identity updated inline", "success");
+    } catch (e) {
+      showToast("Inline update failed", "error");
+    }
+  };
+
   const filteredLinks = links.filter(l => {
     const matchesTag = activeTag === "All" || l.category === activeTag;
     const matchesSearch = l.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -250,6 +266,15 @@ export default function LinksPage() {
                   { label: "Delete Resource", icon: <Trash2 size={14} />, variant: "destructive", onClick: () => deleteLinkFunc(link.id) },
                 ], link.title || "Link System");
               }}
+              isEditing={editingId === link.id}
+              editValue={editingId === link.id ? editValue : link.title}
+              onStartEdit={() => {
+                setEditingId(link.id);
+                setEditValue(link.title || link.url);
+              }}
+              onEditChange={setEditValue}
+              onSave={() => handleInlineSave(link.id)}
+              onCancel={() => setEditingId(null)}
             />
           ))}
         </AnimatePresence>
@@ -341,7 +366,13 @@ export default function LinksPage() {
   );
 }
 
-function LinkCard({ link, onTogglePin, onDelete, onEdit, onContextMenu, onMouseEnter, onMouseLeave, onOpen }: { link: any, onTogglePin: () => void, onDelete: () => void, onEdit: () => void, onContextMenu: (e: React.MouseEvent) => void, onMouseEnter?: () => void, onMouseLeave?: () => void, onOpen: () => void }) {
+function LinkCard({ 
+  link, onTogglePin, onDelete, onEdit, onContextMenu, onMouseEnter, onMouseLeave, onOpen,
+  isEditing, editValue, onStartEdit, onEditChange, onSave, onCancel
+}: { 
+  link: any, onTogglePin: () => void, onDelete: () => void, onEdit: () => void, onContextMenu: (e: React.MouseEvent) => void, onMouseEnter?: () => void, onMouseLeave?: () => void, onOpen: () => void,
+  isEditing: boolean, editValue: string, onStartEdit: () => void, onEditChange: (val: string) => void, onSave: () => void, onCancel: () => void
+}) {
   const faviconUrl = `https://www.google.com/s2/favicons?sz=64&domain=${new URL(link.url).hostname}`;
 
   return (
@@ -381,9 +412,26 @@ function LinkCard({ link, onTogglePin, onDelete, onEdit, onContextMenu, onMouseE
       </div>
 
       <div className="flex-1">
-        <h3 className="font-semibold text-sm text-zinc-100 line-clamp-1 group-hover:text-primary transition-colors leading-tight">
-          {link.title || link.url}
-        </h3>
+        {isEditing ? (
+          <input 
+            autoFocus
+            className="w-full bg-zinc-950 border border-primary/30 rounded-lg px-2 py-1 text-sm font-semibold text-white outline-none focus:border-primary transition-all"
+            value={editValue}
+            onChange={(e) => onEditChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onSave();
+              if (e.key === "Escape") onCancel();
+            }}
+            onBlur={onSave}
+          />
+        ) : (
+          <h3 
+            onClick={(e) => { e.stopPropagation(); onStartEdit(); }}
+            className="font-semibold text-sm text-zinc-100 line-clamp-1 group-hover:text-primary transition-colors leading-tight cursor-text"
+          >
+            {link.title || link.url}
+          </h3>
+        )}
         <p className="text-[11px] text-zinc-500 font-medium mt-1 truncate lowercase">
           {new URL(link.url).hostname}
         </p>

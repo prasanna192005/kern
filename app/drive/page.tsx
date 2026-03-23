@@ -65,6 +65,8 @@ export default function DrivePage() {
   const { showToast } = useToast();
   const { copyRef } = useLinking();
   const [hoveredFile, setHoveredFile] = useState<any>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   const deleteFileFunc = async (id: string) => {
     if (!user) return;
@@ -159,6 +161,20 @@ export default function DrivePage() {
     await deleteDoc(doc(db, `users/${user.uid}/drive`, id));
   };
 
+  const handleInlineSave = async (id: string) => {
+    if (!user || !editValue.trim()) {
+      setEditingId(null);
+      return;
+    }
+    try {
+      await updateDoc(doc(db, `users/${user.uid}/drive`, id), { title: editValue.trim() });
+      setEditingId(null);
+      showToast("Drive record updated inline", "success");
+    } catch (e) {
+      showToast("Inline update failed", "error");
+    }
+  };
+
   const filteredItems = items.filter(i => 
     i.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
     i.projectTag?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -238,7 +254,26 @@ export default function DrivePage() {
                     >
                        <TypeIcon type={item.type || "Doc"} />
                        <div className="flex-1 min-w-0">
-                          <h4 className="font-semibold text-base text-zinc-100 truncate">{item.title}</h4>
+                          {editingId === item.id ? (
+                            <input 
+                              autoFocus
+                              className="w-full bg-zinc-950 border border-primary/30 rounded-lg px-3 py-1 text-base font-semibold text-white outline-none focus:border-primary transition-all"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleInlineSave(item.id);
+                                if (e.key === "Escape") setEditingId(null);
+                              }}
+                              onBlur={() => handleInlineSave(item.id)}
+                            />
+                          ) : (
+                            <h4 
+                              onClick={(e) => { e.stopPropagation(); setEditingId(item.id); setEditValue(item.title); }}
+                              className="font-semibold text-base text-zinc-100 truncate cursor-text hover:text-primary/80 transition-colors"
+                            >
+                              {item.title}
+                            </h4>
+                          )}
                           {item.notes && <p className="text-xs text-zinc-500 mt-1">{item.notes}</p>}
                           <p className="text-[10px] text-zinc-500 font-medium mt-1 truncate opacity-60 font-mono">{item.url}</p>
                        </div>

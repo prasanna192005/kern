@@ -58,6 +58,8 @@ export default function TodosPage() {
     mode: "add",
   });
   const [searchQuery, setSearchQuery] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
   const [hoveredTodo, setHoveredTodo] = useState<any>(null);
 
   const [form, setForm] = useState({ title: "", category: "Work", priority: "Medium", dueDate: "" });
@@ -206,6 +208,20 @@ export default function TodosPage() {
     showToast(nextStatus === "Done" ? "Task Commited" : "Task Re-initialized", "info");
   };
 
+  const handleInlineSave = async (id: string) => {
+    if (!user || !editValue.trim()) {
+      setEditingId(null);
+      return;
+    }
+    try {
+      await updateDoc(doc(db, `users/${user.uid}/todos`, id), { title: editValue.trim() });
+      setEditingId(null);
+      showToast("Objective Identity updated inline", "success");
+    } catch (e) {
+      showToast("Inline update failed", "error");
+    }
+  };
+
   const updateTodoStatus = async (id: string, status: string) => {
     if (!user) return;
     await updateDoc(doc(db, `users/${user.uid}/todos`, id), { status });
@@ -301,6 +317,15 @@ export default function TodosPage() {
                       }}
                       onStatusChange={(newStatus) => updateTodoStatus(todo.id, newStatus)}
                       onContextMenu={(e) => handleTodoContextMenu(e, todo)}
+                      isEditing={editingId === todo.id}
+                      editValue={editingId === todo.id ? editValue : todo.title}
+                      onStartEdit={() => {
+                        setEditingId(todo.id);
+                        setEditValue(todo.title);
+                      }}
+                      onEditChange={setEditValue}
+                      onSave={() => handleInlineSave(todo.id)}
+                      onCancel={() => setEditingId(null)}
                     />
                   ))}
                 </AnimatePresence>
@@ -332,8 +357,17 @@ export default function TodosPage() {
                     setForm({ title: todo.title, category: todo.category || "Work", priority: todo.priority || "Medium", dueDate: todo.dueDate || "" });
                     setModalState({ isOpen: true, mode: "edit", todo });
                   }}
-                  onContextMenu={(e: React.MouseEvent) => handleTodoContextMenu(e, todo)}
-                />
+                    onContextMenu={(e: React.MouseEvent) => handleTodoContextMenu(e, todo)}
+                    isEditing={editingId === todo.id}
+                    editValue={editingId === todo.id ? editValue : todo.title}
+                    onStartEdit={() => {
+                      setEditingId(todo.id);
+                      setEditValue(todo.title);
+                    }}
+                    onEditChange={setEditValue}
+                    onSave={() => handleInlineSave(todo.id)}
+                    onCancel={() => setEditingId(null)}
+                  />
               ))}
             </AnimatePresence>
           </div>
@@ -430,7 +464,13 @@ export default function TodosPage() {
   );
 }
 
-function TodoCard({ todo, onToggle, onDelete, onEdit, onStatusChange, onMouseEnter, onMouseLeave, onContextMenu }: { todo: any, onToggle: () => void, onDelete: () => void, onEdit: () => void, onStatusChange: (status: string) => void, onMouseEnter?: () => void, onMouseLeave?: () => void, onContextMenu: (e: React.MouseEvent) => void }) {
+function TodoCard({ 
+  todo, onToggle, onDelete, onEdit, onStatusChange, onMouseEnter, onMouseLeave, onContextMenu,
+  isEditing, editValue, onStartEdit, onEditChange, onSave, onCancel 
+}: { 
+  todo: any, onToggle: () => void, onDelete: () => void, onEdit: () => void, onStatusChange: (status: string) => void, onMouseEnter?: () => void, onMouseLeave?: () => void, onContextMenu: (e: React.MouseEvent) => void,
+  isEditing: boolean, editValue: string, onStartEdit: () => void, onEditChange: (val: string) => void, onSave: () => void, onCancel: () => void
+}) {
   const isDone = todo.status === "Done";
   
   return (
@@ -468,12 +508,29 @@ function TodoCard({ todo, onToggle, onDelete, onEdit, onStatusChange, onMouseEnt
           {isDone && <CheckCircle2 size={14} strokeWidth={3} />}
         </button>
         <div className="flex-1 min-w-0">
-          <p className={cn(
-            "text-base font-semibold leading-tight transition-all",
-            isDone ? "text-zinc-600 line-through" : "text-zinc-100"
-          )}>
-            {todo.title}
-          </p>
+          {isEditing ? (
+            <input 
+              autoFocus
+              className="w-full bg-zinc-950 border border-primary/30 rounded-lg px-3 py-1 text-base font-semibold text-white outline-none focus:border-primary transition-all"
+              value={editValue}
+              onChange={(e) => onEditChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onSave();
+                if (e.key === "Escape") onCancel();
+              }}
+              onBlur={onSave}
+            />
+          ) : (
+            <p 
+              onClick={(e) => { e.stopPropagation(); onStartEdit(); }}
+              className={cn(
+                "text-base font-semibold leading-tight transition-all cursor-text hover:text-primary/80",
+                isDone ? "text-zinc-600 line-through" : "text-zinc-100"
+              )}
+            >
+              {todo.title}
+            </p>
+          )}
           <div className="flex items-center gap-3 mt-4">
              <span className={cn(
                "px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-widest border",
@@ -507,7 +564,13 @@ function TodoCard({ todo, onToggle, onDelete, onEdit, onStatusChange, onMouseEnt
   );
 }
 
-function TodoRow({ todo, onToggle, onDelete, onEdit, onMouseEnter, onMouseLeave, onContextMenu }: { todo: any, onToggle: () => void, onDelete: () => void, onEdit: () => void, onMouseEnter?: () => void, onMouseLeave?: () => void, onContextMenu: (e: React.MouseEvent) => void }) {
+function TodoRow({ 
+  todo, onToggle, onDelete, onEdit, onMouseEnter, onMouseLeave, onContextMenu,
+  isEditing, editValue, onStartEdit, onEditChange, onSave, onCancel
+}: { 
+  todo: any, onToggle: () => void, onDelete: () => void, onEdit: () => void, onMouseEnter?: () => void, onMouseLeave?: () => void, onContextMenu: (e: React.MouseEvent) => void,
+  isEditing: boolean, editValue: string, onStartEdit: () => void, onEditChange: (val: string) => void, onSave: () => void, onCancel: () => void
+}) {
   const isDone = todo.status === "Done";
   
   return (
@@ -531,12 +594,29 @@ function TodoRow({ todo, onToggle, onDelete, onEdit, onMouseEnter, onMouseLeave,
         {isDone && <CheckCircle2 size={14} strokeWidth={3} />}
       </button>
       
-      <p className={cn(
-        "flex-1 text-base font-semibold transition-all truncate",
-        isDone ? "text-zinc-600 line-through" : "text-zinc-100"
-      )}>
-        {todo.title}
-      </p>
+      {isEditing ? (
+        <input 
+          autoFocus
+          className="flex-1 bg-zinc-950 border border-primary/30 rounded-lg px-4 py-1 text-base font-semibold text-white outline-none focus:border-primary transition-all"
+          value={editValue}
+          onChange={(e) => onEditChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") onSave();
+            if (e.key === "Escape") onCancel();
+          }}
+          onBlur={onSave}
+        />
+      ) : (
+        <p 
+          onClick={(e) => { e.stopPropagation(); onStartEdit(); }}
+          className={cn(
+            "flex-1 text-base font-semibold transition-all truncate cursor-text hover:text-primary/80",
+            isDone ? "text-zinc-600 line-through" : "text-zinc-100"
+          )}
+        >
+          {todo.title}
+        </p>
+      )}
       
       <div className="flex items-center gap-8 shrink-0">
         <span className={cn(
