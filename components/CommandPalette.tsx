@@ -134,11 +134,12 @@ export default function CommandPalette() {
       const filteredNav = defaultNav.filter(n => n.title.toLowerCase().includes(q));
 
       try {
-        const [pSnap, tSnap, lSnap, dSnap] = await Promise.all([
+        const [pSnap, tSnap, lSnap, dSnap, nSnap] = await Promise.all([
            getDocs(query(collection(db, `users/${user.uid}/projects`), limit(100))),
            getDocs(query(collection(db, `users/${user.uid}/todos`), limit(100))),
            getDocs(query(collection(db, `users/${user.uid}/links`), limit(100))),
            getDocs(query(collection(db, `users/${user.uid}/drive`), limit(100))),
+           getDocs(query(collection(db, `users/${user.uid}/notes`), limit(100))),
         ]);
 
         const projectResults = pSnap.docs.map(doc => ({ 
@@ -185,13 +186,21 @@ export default function CommandPalette() {
               raw: { ...data, id: doc.id, collection: "drive" }
            };
         });
+         
+         const noteResults = nSnap.docs.map(doc => ({
+            id: doc.id,
+            title: doc.data().content.substring(0, 50),
+            icon: StickyNote,
+            category: "Knowledge",
+            action: () => { router.push("/notes"); setIsOpen(false); }
+         }));
 
-        const allLocalPool = [...projectResults, ...todoResults, ...linkResults, ...driveResultsRaw];
+         const allLocalPool = [...projectResults, ...todoResults, ...linkResults, ...driveResultsRaw, ...noteResults];
         const lowerQ = q.toLowerCase();
 
         // --- @Mention Suggestions ---
-        if (q.includes("@")) {
-          const lastAtIndex = q.lastIndexOf("@");
+        const lastAtIndex = q.lastIndexOf("@");
+        if (lastAtIndex !== -1) {
           const mentionQuery = q.substring(lastAtIndex + 1).split(" ")[0].toLowerCase();
           
           if (mentionQuery.length >= 0) {
@@ -234,7 +243,8 @@ export default function CommandPalette() {
                     handleAction("delete_res", bestMatch.id, { 
                       collection: bestMatch.category === "Projects" ? "projects" : 
                                  bestMatch.category === "Tasks" ? "todos" : 
-                                 bestMatch.category === "Vault" ? "links" : "drive",
+                                 bestMatch.category === "Vault" ? "links" : 
+                                 bestMatch.category === "Knowledge" ? "notes" : "drive",
                       name: bestMatch.title
                     });
                     setConfirmingId(null);

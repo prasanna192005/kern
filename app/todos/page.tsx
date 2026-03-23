@@ -15,7 +15,10 @@ import {
   List,
   PlusCircle,
   Tag,
-  Edit2
+  Edit2,
+  Copy,
+  Move,
+  FileText
 } from "lucide-react";
 import { 
   collection, 
@@ -33,6 +36,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/context/ToastContext";
 import { useLinking } from "@/context/LinkingContext";
 import { useKeyboardActions } from "@/hooks/useKeyboardActions";
+import { useContextMenu } from "@/context/ContextMenuContext";
 
 const priorityColors = {
   High: "bg-red-500/10 text-red-500 border-red-500/20",
@@ -45,6 +49,7 @@ export default function TodosPage() {
   const router = useRouter();
   const { showToast } = useToast();
   const { copyRef } = useLinking();
+  const { showMenu, hideMenu } = useContextMenu();
   
   const [todos, setTodos] = useState<any[]>([]);
   const [view, setView] = useState<"kanban" | "list">("kanban");
@@ -78,6 +83,69 @@ export default function TodosPage() {
         showToast("Update Failure", "error");
       }
     }
+  };
+
+  const duplicateTodo = async (todo: any) => {
+    if (!user || !todo) return;
+    try {
+      const { id, ...todoData } = todo;
+      await addDoc(collection(db, `users/${user.uid}/todos`), {
+        ...todoData,
+        title: `${todo.title} (Copy)`,
+        createdAt: serverTimestamp(),
+        status: todo.status || "Todo"
+      });
+      showToast("Objective Duplicated", "success");
+    } catch (e) {
+      showToast("Duplication Failure", "error");
+    }
+  };
+
+  const createNoteFromTask = async (todo: any) => {
+    if (!user || !todo) return;
+    try {
+      await addDoc(collection(db, `users/${user.uid}/notes`), {
+        content: `# Note for Task: ${todo.title}\n\n- Project: ${todo.category || 'General'}\n- Priority: ${todo.priority}\n\n[Add details here]`,
+        projectTag: todo.category?.toUpperCase() || "GENERAL",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      showToast("Note Created from Task", "success");
+      router.push("/notes");
+    } catch (e) {
+      showToast("Note Creation Failure", "error");
+    }
+  };
+
+  const moveToProject = async (todo: any) => {
+    if (!user || !todo) return;
+    const newProject = prompt("Reassign to Project Scopes:", todo.category || "");
+    if (newProject !== null) {
+      try {
+        await updateDoc(doc(db, `users/${user.uid}/todos`, todo.id), { category: newProject });
+        showToast("Project Scope Updated", "success");
+      } catch (e) {
+        showToast("Move Failure", "error");
+      }
+    }
+  };
+
+  const handleTodoContextMenu = (e: React.MouseEvent, todo: any) => {
+    e.preventDefault();
+    showMenu(e.clientX, e.clientY, [
+      { 
+        label: "Edit Objective", 
+        icon: <Edit2 size={14} />, 
+        onClick: () => {
+          setForm({ title: todo.title, category: todo.category || "Work", priority: todo.priority || "Medium", dueDate: todo.dueDate || "" });
+          setModalState({ isOpen: true, mode: "edit", todo });
+        }
+      },
+      { label: "Duplicate", icon: <Copy size={14} />, onClick: () => duplicateTodo(todo) },
+      { label: "Move to Project", icon: <Move size={14} />, onClick: () => moveToProject(todo) },
+      { label: "Create Note", icon: <FileText size={14} />, onClick: () => createNoteFromTask(todo) },
+      { label: "Delete", icon: <Trash2 size={14} />, onClick: () => deleteTodoFunc(todo.id), variant: "destructive" },
+    ], todo.title);
   };
 
   useKeyboardActions({
@@ -232,6 +300,7 @@ export default function TodosPage() {
                         setModalState({ isOpen: true, mode: "edit", todo });
                       }}
                       onStatusChange={(newStatus) => updateTodoStatus(todo.id, newStatus)}
+                      onContextMenu={(e) => handleTodoContextMenu(e, todo)}
                     />
                   ))}
                 </AnimatePresence>
@@ -263,6 +332,7 @@ export default function TodosPage() {
                     setForm({ title: todo.title, category: todo.category || "Work", priority: todo.priority || "Medium", dueDate: todo.dueDate || "" });
                     setModalState({ isOpen: true, mode: "edit", todo });
                   }}
+                  onContextMenu={(e: React.MouseEvent) => handleTodoContextMenu(e, todo)}
                 />
               ))}
             </AnimatePresence>
@@ -360,7 +430,7 @@ export default function TodosPage() {
   );
 }
 
-function TodoCard({ todo, onToggle, onDelete, onEdit, onStatusChange, onMouseEnter, onMouseLeave }: { todo: any, onToggle: () => void, onDelete: () => void, onEdit: () => void, onStatusChange: (status: string) => void, onMouseEnter?: () => void, onMouseLeave?: () => void }) {
+function TodoCard({ todo, onToggle, onDelete, onEdit, onStatusChange, onMouseEnter, onMouseLeave, onContextMenu }: { todo: any, onToggle: () => void, onDelete: () => void, onEdit: () => void, onStatusChange: (status: string) => void, onMouseEnter?: () => void, onMouseLeave?: () => void, onContextMenu: (e: React.MouseEvent) => void }) {
   const isDone = todo.status === "Done";
   
   return (
@@ -384,6 +454,7 @@ function TodoCard({ todo, onToggle, onDelete, onEdit, onStatusChange, onMouseEnt
       whileDrag={{ scale: 1.05, zIndex: 50, cursor: "grabbing" }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      onContextMenu={onContextMenu}
       className="bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800 hover:border-zinc-700 transition-all group cursor-grab active:cursor-grabbing"
     >
       <div className="flex items-start gap-4">
@@ -436,7 +507,7 @@ function TodoCard({ todo, onToggle, onDelete, onEdit, onStatusChange, onMouseEnt
   );
 }
 
-function TodoRow({ todo, onToggle, onDelete, onEdit, onMouseEnter, onMouseLeave }: { todo: any, onToggle: () => void, onDelete: () => void, onEdit: () => void, onMouseEnter?: () => void, onMouseLeave?: () => void }) {
+function TodoRow({ todo, onToggle, onDelete, onEdit, onMouseEnter, onMouseLeave, onContextMenu }: { todo: any, onToggle: () => void, onDelete: () => void, onEdit: () => void, onMouseEnter?: () => void, onMouseLeave?: () => void, onContextMenu: (e: React.MouseEvent) => void }) {
   const isDone = todo.status === "Done";
   
   return (
@@ -447,6 +518,7 @@ function TodoRow({ todo, onToggle, onDelete, onEdit, onMouseEnter, onMouseLeave 
       exit={{ opacity: 0 }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      onContextMenu={onContextMenu}
       className="flex items-center gap-6 px-8 py-5 hover:bg-zinc-900/40 transition-colors group"
     >
       <button 

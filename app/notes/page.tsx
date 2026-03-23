@@ -14,7 +14,9 @@ import {
   X,
   Tag,
   PlusCircle,
-  Hash
+  Hash,
+  Copy,
+  Edit2
 } from "lucide-react";
 import { 
   collection, 
@@ -31,10 +33,14 @@ import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/context/ToastContext";
 import { useKeyboardActions } from "@/hooks/useKeyboardActions";
+import { useContextMenu } from "@/context/ContextMenuContext";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export default function NotesPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const { showMenu, hideMenu } = useContextMenu();
   
   const [notes, setNotes] = useState<any[]>([]);
   const [modalState, setModalState] = useState<{ isOpen: boolean; mode: "add" | "edit"; note?: any }>({
@@ -42,6 +48,7 @@ export default function NotesPage() {
     mode: "add",
   });
   const [searchQuery, setSearchQuery] = useState("");
+  const [isPreview, setIsPreview] = useState(false);
   
   const [form, setForm] = useState({ content: "", projectTag: "" });
   const { showToast } = useToast();
@@ -111,6 +118,38 @@ export default function NotesPage() {
     showToast("Knowledge Purged", "error");
   };
 
+  const duplicateNote = async (note: any) => {
+    if (!user || !note) return;
+    try {
+      await addDoc(collection(db, `users/${user.uid}/notes`), {
+        content: note.content,
+        projectTag: note.projectTag || "",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      showToast("Thought Duplicated", "success");
+    } catch (e) {
+      showToast("Duplication Failure", "error");
+    }
+  };
+
+  const handleNoteContextMenu = (e: React.MouseEvent, note: any) => {
+    e.preventDefault();
+    showMenu(e.clientX, e.clientY, [
+      { 
+        label: "Edit Reference", 
+        icon: <Edit2 size={14} />, 
+        onClick: () => {
+          setForm({ content: note.content, projectTag: note.projectTag || "" });
+          setIsPreview(false);
+          setModalState({ isOpen: true, mode: "edit", note });
+        }
+      },
+      { label: "Duplicate Thought", icon: <Copy size={14} />, onClick: () => duplicateNote(note) },
+      { label: "Purge Record", icon: <Trash2 size={14} />, onClick: () => deleteNoteFunc(note.id), variant: "destructive" },
+    ], note.projectTag || "General Thought");
+  };
+
   const filteredNotes = notes.filter(note => 
     note.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
     note.projectTag?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -140,6 +179,7 @@ export default function NotesPage() {
           <button 
             onClick={() => {
               setForm({ content: "", projectTag: "" });
+              setIsPreview(false);
               setModalState({ isOpen: true, mode: "add" });
             }}
             className="bg-foreground text-background px-5 py-2.5 rounded-xl text-sm font-bold shadow-soft hover:bg-primary hover:text-primary-foreground transition-all flex items-center gap-2"
@@ -162,11 +202,13 @@ export default function NotesPage() {
               exit={{ opacity: 0, scale: 0.98 }}
               onMouseEnter={() => setHoveredNote(note)}
               onMouseLeave={() => setHoveredNote(null)}
-              onClick={() => {
-                setForm({ content: note.content, projectTag: note.projectTag || "" });
-                setModalState({ isOpen: true, mode: "edit", note });
-              }}
-              className="bg-zinc-900/50 p-8 rounded-2xl border border-zinc-800 hover:border-zinc-700 hover:shadow-xl transition-all group flex flex-col min-h-[200px] cursor-pointer relative"
+               onClick={() => {
+                 setForm({ content: note.content, projectTag: note.projectTag || "" });
+                 setIsPreview(false);
+                 setModalState({ isOpen: true, mode: "edit", note });
+               }}
+               onContextMenu={(e) => handleNoteContextMenu(e, note)}
+               className="bg-zinc-900/50 p-8 rounded-2xl border border-zinc-800 hover:border-zinc-700 hover:shadow-xl transition-all group flex flex-col min-h-[200px] cursor-pointer relative"
             >
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-900">
@@ -178,9 +220,11 @@ export default function NotesPage() {
               </div>
               
               <div className="flex-1">
-                 <p className="text-zinc-400 leading-relaxed text-base line-clamp-4 font-medium">
-                   {note.content}
-                 </p>
+                 <div className="text-zinc-400 leading-relaxed text-sm line-clamp-5 font-medium markdown-content prose prose-invert prose-sm">
+                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {note.content}
+                   </ReactMarkdown>
+                 </div>
               </div>
               
               <div className="mt-8 pt-6 border-t border-zinc-800/50 flex items-center justify-between">
@@ -230,17 +274,37 @@ export default function NotesPage() {
               className="bg-zinc-900 max-w-2xl w-full p-10 rounded-[2.5rem] shadow-2xl relative border border-zinc-800 z-10"
             >
               <button onClick={() => setModalState({ isOpen: false, mode: "add" })} className="absolute top-8 right-8 text-zinc-700 hover:text-white transition-colors"><X size={24} /></button>
-              <h2 className="text-2xl font-bold mb-8 text-white">{modalState.mode === "add" ? "Initialize Note" : "Update Document"}</h2>
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-2xl font-bold text-white">{modalState.mode === "add" ? "Initialize Note" : "Update Document"}</h2>
+                <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800 mr-12">
+                   <button 
+                     type="button" 
+                     onClick={() => setIsPreview(false)}
+                     className={cn("px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all", !isPreview ? "bg-primary text-white" : "text-zinc-500")}
+                   >Edit</button>
+                   <button 
+                     type="button" 
+                     onClick={() => setIsPreview(true)}
+                     className={cn("px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all", isPreview ? "bg-primary text-white" : "text-zinc-500")}
+                   >Preview</button>
+                </div>
+              </div>
               <form onSubmit={handleSaveNote} className="space-y-8">
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 mb-4 block font-mono">_content</label>
-                  <textarea 
-                    required autoFocus
-                    className="w-full bg-zinc-950/50 border border-zinc-800 rounded-2xl px-8 py-8 outline-none focus:border-primary/50 transition-all font-medium text-lg leading-relaxed text-white min-h-[350px] resize-none placeholder:text-zinc-800"
-                    placeholder="Fast execution, no placeholders..."
-                    value={form.content}
-                    onChange={e => setForm({...form, content: e.target.value})}
-                  />
+                  {isPreview ? (
+                    <div className="w-full bg-zinc-950/50 border border-zinc-800 rounded-2xl px-8 py-8 min-h-[350px] overflow-y-auto markdown-content prose prose-invert prose-blue max-w-none">
+                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{form.content}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <textarea 
+                      required autoFocus
+                      className="w-full bg-zinc-950/50 border border-zinc-800 rounded-2xl px-8 py-8 outline-none focus:border-primary/50 transition-all font-medium text-lg leading-relaxed text-white min-h-[350px] resize-none placeholder:text-zinc-800"
+                      placeholder="Support markdown... # Header, **bold**, [link](url)"
+                      value={form.content}
+                      onChange={e => setForm({...form, content: e.target.value})}
+                    />
+                  )}
                 </div>
                 <div className="flex items-center gap-6">
                   <div className="flex-1">

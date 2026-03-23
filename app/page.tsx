@@ -331,8 +331,8 @@ export default function Dashboard() {
                      </span>
                    </div>
                 </div>
-                <Link href="/todos" className="w-14 h-14 rounded-2xl bg-foreground text-background flex items-center justify-center hover:scale-105 transition-all shadow-glow group">
-                   <Plus size={24} className="group-hover:text-primary transition-colors" />
+                <Link href="/todos" className="w-8 h-8 rounded-xl bg-foreground text-background flex items-center justify-center hover:scale-105 transition-all shadow-glow group">
+                   <Plus size={24} className="group-hover:text-black transition-colors" />
                 </Link>
             </div>
 
