@@ -22,7 +22,7 @@ import {
   Trash2,
   Edit3,
   ExternalLink,
-  Zap
+  Mic
 } from "lucide-react";
 import { 
   collection,
@@ -55,6 +55,14 @@ export default function CommandPalette() {
   const { logInteraction } = useHistory();
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  
+  const isOpenRef = useRef(isOpen);
+  const isListeningRef = useRef(isListening);
+
+  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
+  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -75,8 +83,76 @@ export default function CommandPalette() {
       inputRef.current?.focus();
       setSelectedIndex(0);
       setConfirmingId(null);
+      // If opened via wake word, we might want to start listening for command immediately
     }
   }, [isOpen]);
+
+  // --- Simplified Voice Logic ---
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    if (!recognitionRef.current) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      recognition.onresult = (event: any) => {
+        if (!isOpenRef.current || !isListeningRef.current) return;
+        
+        const results = event.results;
+        const fullTranscript = Array.from(results)
+          .map((result: any) => result[0].transcript)
+          .join("");
+        setQueryText(fullTranscript);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.onerror = (event: any) => {
+        if (event.error === "aborted" || event.error === "no-speech") {
+          setIsListening(false);
+          return;
+        }
+        console.error("Speech Recognition Error:", event.error);
+        if (event.error === "not-allowed") {
+          showToast("Microphone Permission Denied", "error");
+          setIsListening(false);
+        }
+      };
+
+      recognitionRef.current = recognition;
+    }
+
+    if (isListening && isOpen) {
+      try {
+        recognitionRef.current.start();
+      } catch (e) {}
+    } else {
+      try {
+        recognitionRef.current.stop();
+        if (isListening) setIsListening(false);
+      } catch (e) {}
+    }
+
+    return () => {
+      recognitionRef.current?.stop();
+    };
+    // Stable dependency array to satisfy React Rules of Hooks
+  }, [isListening, isOpen]);
+
+  const startListening = () => {
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+    
+    setIsListening(true);
+    setQueryText("");
+  };
 
   useEffect(() => {
     if (!isOpen || !user) return;
@@ -436,16 +512,45 @@ export default function CommandPalette() {
             className="bg-zinc-900/95 backdrop-blur-3xl w-full max-w-[600px] rounded-2xl shadow-2xl overflow-hidden pointer-events-auto border border-zinc-800/50 flex flex-col relative z-10"
           >
             <div className="flex items-center px-8 py-6 gap-4 border-b border-zinc-800/50">
-              <Search className="text-zinc-500" size={20} />
+              <Search className={cn("text-zinc-500 transition-colors", isListening && "text-primary")} size={20} />
               <input 
                 ref={inputRef}
                 type="text"
-                placeholder="Type a command or use @ to mention items..."
-                className="w-full bg-transparent border-none outline-none text-xl font-medium tracking-tight text-white placeholder:text-zinc-700"
+                placeholder={isListening ? "Listening for command..." : "Type a command or use @ to mention items..."}
+                className={cn(
+                  "w-full bg-transparent border-none outline-none text-xl font-medium tracking-tight text-white placeholder:text-zinc-700 transition-all",
+                  isListening && "text-primary italic animate-pulse"
+                )}
                 value={queryText}
                 onChange={(e) => setQueryText(e.target.value)}
                 onKeyDown={handleKeyDown}
               />
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={startListening}
+                  className={cn(
+                    "p-2.5 rounded-xl transition-all border relative group",
+                    isListening ? "bg-red-500/10 border-red-500/30 text-red-500" : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white"
+                  )}
+                >
+                  {isListening ? (
+                    <motion.div
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ repeat: Infinity, duration: 2 }}
+                    >
+                      <Mic size={18} />
+                    </motion.div>
+                  ) : (
+                    <Mic size={18} />
+                  )}
+                  {isListening && (
+                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
 
             <div className="max-h-[460px] overflow-y-auto custom-scrollbar p-3">
