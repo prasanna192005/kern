@@ -37,6 +37,7 @@ import { useContextMenu } from "@/context/ContextMenuContext";
 import { useToast } from "@/context/ToastContext";
 import { useLinking } from "@/context/LinkingContext";
 import { useKeyboardActions } from "@/hooks/useKeyboardActions";
+import { useHistory } from "@/hooks/useHistory";
 
 const typeStyles = {
   Sheet: { color: "#16A34A", icon: Table, bg: "rgba(22, 163, 74, 0.1)" },
@@ -51,6 +52,7 @@ export default function DrivePage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const { showMenu } = useContextMenu();
+  const { logInteraction } = useHistory();
   
   const [items, setItems] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
@@ -249,15 +251,15 @@ export default function DrivePage() {
                              {copiedId === item.id ? <Check size={14} className="text-primary" /> : <CopyIcon size={14} />}
                              <span className="text-[10px] font-bold uppercase tracking-widest">{copiedId === item.id ? "Copied" : "Copy"}</span>
                           </button>
-                          
-                          <a 
-                            href={item.url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="p-2.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white transition-all border border-zinc-700/50"
-                          >
+                                                    <a 
+                             href={item.url} 
+                             target="_blank" 
+                             rel="noopener noreferrer"
+                             onClick={() => logInteraction({ title: item.title, url: item.url, category: "Drive", type: item.type })}
+                             className="p-2.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white transition-all border border-zinc-700/50"
+                           >
                              <ExternalLink size={16} />
-                          </a>
+                           </a>
 
                           <button 
                             onClick={() => {

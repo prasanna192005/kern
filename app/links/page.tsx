@@ -34,11 +34,13 @@ import { Copy as CopyIcon } from "lucide-react";
 import { useToast } from "@/context/ToastContext";
 import { useLinking } from "@/context/LinkingContext";
 import { useKeyboardActions } from "@/hooks/useKeyboardActions";
+import { useHistory } from "@/hooks/useHistory";
 
 export default function LinksPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const { showMenu } = useContextMenu();
+  const { logInteraction } = useHistory();
   
   const [links, setLinks] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
@@ -224,6 +226,7 @@ export default function LinksPage() {
               onDelete={() => deleteLinkFunc(link.id)} 
               onMouseEnter={() => setHoveredLink(link)}
               onMouseLeave={() => setHoveredLink(null)}
+              onOpen={() => logInteraction({ title: link.title, url: link.url, category: "Vault" })}
               onEdit={() => {
                 setForm({ title: link.title, url: link.url, category: link.category || "General", description: link.description || "", projectId: link.projectId || "" });
                 setModalState({ isOpen: true, mode: "edit", link });
@@ -338,7 +341,7 @@ export default function LinksPage() {
   );
 }
 
-function LinkCard({ link, onTogglePin, onDelete, onEdit, onContextMenu, onMouseEnter, onMouseLeave }: { link: any, onTogglePin: () => void, onDelete: () => void, onEdit: () => void, onContextMenu: (e: React.MouseEvent) => void, onMouseEnter?: () => void, onMouseLeave?: () => void }) {
+function LinkCard({ link, onTogglePin, onDelete, onEdit, onContextMenu, onMouseEnter, onMouseLeave, onOpen }: { link: any, onTogglePin: () => void, onDelete: () => void, onEdit: () => void, onContextMenu: (e: React.MouseEvent) => void, onMouseEnter?: () => void, onMouseLeave?: () => void, onOpen: () => void }) {
   const faviconUrl = `https://www.google.com/s2/favicons?sz=64&domain=${new URL(link.url).hostname}`;
 
   return (
@@ -392,6 +395,7 @@ function LinkCard({ link, onTogglePin, onDelete, onEdit, onContextMenu, onMouseE
             href={link.url} 
             target="_blank" 
             rel="noopener noreferrer"
+            onClick={onOpen}
             className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 flex items-center gap-1.5 hover:text-primary hover:underline transition-colors"
           >
             Open Link <ExternalLink size={12} />

@@ -1,25 +1,28 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation";
 import { 
   Search, 
   LayoutDashboard, 
-  Link as LinkIcon, 
   CheckSquare, 
+  Link as LinkIcon, 
   HardDrive, 
-  StickyNote,
-  Command as CommandIcon,
+  StickyNote, 
+  LogOut, 
+  FileText, 
+  Table, 
+  Presentation, 
   ArrowRight,
-  LogOut,
-  FileText,
-  Table,
-  Presentation,
   Folder,
   Database,
   Plus,
-  CloudDownload
+  CloudDownload,
+  Trash2,
+  Edit3,
+  ExternalLink,
+  Zap
 } from "lucide-react";
 import { 
   collection,
@@ -28,12 +31,16 @@ import {
   serverTimestamp,
   where,
   getDocs,
-  limit
+  limit,
+  doc,
+  deleteDoc,
+  updateDoc
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
-import { useToast } from "@/context/ToastContext";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/context/ToastContext";
+import { useHistory } from "@/hooks/useHistory";
 
 export default function CommandPalette() {
   const [isOpen, setIsOpen] = useState(false);
@@ -41,19 +48,23 @@ export default function CommandPalette() {
   const [results, setResults] = useState<any[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   
   const { user, logOut, gdriveToken, signInWithGoogleDrive } = useAuth();
   const { showToast } = useToast();
+  const { logInteraction } = useHistory();
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setIsOpen(prev => !prev);
       }
-      if (e.key === "Escape") setIsOpen(false);
+      if (e.key === "Escape") {
+        setIsOpen(false);
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -61,9 +72,9 @@ export default function CommandPalette() {
 
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 10);
-      setQueryText("");
+      inputRef.current?.focus();
       setSelectedIndex(0);
+      setConfirmingId(null);
     }
   }, [isOpen]);
 
@@ -87,6 +98,10 @@ export default function CommandPalette() {
       }
 
       const smartResults: any[] = [];
+      let uiProjects: any[] = [];
+      let uiTodos: any[] = [];
+      let uiLinks: any[] = [];
+      let uiDrive: any[] = [];
       
       // Google Workspace Integration
       const isGoogleDoc = q.includes("docs.google.com/document");
@@ -105,135 +120,205 @@ export default function CommandPalette() {
         });
       }
 
-      // Action: Add Todo (only if not a link)
-      if ((q.startsWith("todo ") || q.startsWith("task ") || q.length > 3) && !q.includes(".")) {
+      // Action: Add Todo
+      if ((q.startsWith("todo ") || q.startsWith("task ") || q.length > 3) && !q.includes(".") && !q.includes("@")) {
         const title = q.replace(/todo |task /i, "");
         smartResults.push({ id: "s-todo", title: `New Task: ${title}`, icon: CheckSquare, category: "Action", action: () => handleAction("todo", title) });
       }
 
-      // Action: Save Link (if looks like a URL and not already a Google Doc action)
-      if ((q.startsWith("http") || q.includes(".")) && smartResults.length === 0) {
+      // Action: Save Link
+      if ((q.startsWith("http") || q.includes(".")) && smartResults.length === 0 && !q.includes("@")) {
         smartResults.push({ id: "s-link", title: `Save to Vault: ${q}`, icon: LinkIcon, category: "Action", action: () => handleAction("link", q) });
-      }
-
-      // Quick Command: Sign Out
-      if (q.includes("sign out") || q.includes("logout") || q.includes("exit")) {
-        smartResults.push({ id: "s-logout", title: "Terminate Session", icon: LogOut, category: "System", action: () => { setIsOpen(false); logOut(); } });
-      }
-
-      // Connect GDrive Action
-      if (!gdriveToken && q.length > 2) {
-        smartResults.push({ 
-          id: "s-gconnect", 
-          title: "Connect Google Drive for Deep Search", 
-          icon: HardDrive, 
-          category: "System", 
-          action: () => { signInWithGoogleDrive(); setIsOpen(false); } 
-        });
       }
 
       const filteredNav = defaultNav.filter(n => n.title.toLowerCase().includes(q));
 
-      // Dynamic Search across all collections
-      let projectResults: any[] = [];
-      let todoResults: any[] = [];
-      let linkResults: any[] = [];
-      let driveResults: any[] = [];
-
       try {
         const [pSnap, tSnap, lSnap, dSnap] = await Promise.all([
-           getDocs(query(collection(db, `users/${user.uid}/projects`), limit(5))),
-           getDocs(query(collection(db, `users/${user.uid}/todos`), limit(5))),
-           getDocs(query(collection(db, `users/${user.uid}/links`), limit(5))),
-           getDocs(query(collection(db, `users/${user.uid}/drive`), limit(5))),
+           getDocs(query(collection(db, `users/${user.uid}/projects`), limit(100))),
+           getDocs(query(collection(db, `users/${user.uid}/todos`), limit(100))),
+           getDocs(query(collection(db, `users/${user.uid}/links`), limit(100))),
+           getDocs(query(collection(db, `users/${user.uid}/drive`), limit(100))),
         ]);
 
-        projectResults = pSnap.docs
-          .map(doc => ({ 
-             id: doc.id, 
-             title: doc.data().name, 
-             icon: Folder, 
-             category: "Projects", 
-             action: () => { router.push(`/projects/${doc.id}`); setIsOpen(false); } 
-          }))
-          .filter(p => p.title.toLowerCase().includes(q));
+        const projectResults = pSnap.docs.map(doc => ({ 
+           id: doc.id, 
+           title: doc.data().name, 
+           icon: Folder, 
+           category: "Projects", 
+           action: () => { router.push(`/projects/${doc.id}`); setIsOpen(false); } 
+        }));
 
-        todoResults = tSnap.docs
-          .map(doc => ({ 
-             id: doc.id, 
-             title: doc.data().title, 
-             icon: CheckSquare, 
-             category: "Tasks", 
-             action: () => { router.push("/todos"); setIsOpen(false); } 
-          }))
-          .filter(t => t.title.toLowerCase().includes(q));
+        const todoResults = tSnap.docs.map(doc => ({ 
+           id: doc.id, 
+           title: doc.data().title, 
+           icon: CheckSquare, 
+           category: "Tasks", 
+           action: () => { router.push("/todos"); setIsOpen(false); } 
+        }));
 
-        linkResults = lSnap.docs
-          .map(doc => ({ 
-             id: doc.id, 
-             title: doc.data().title, 
-             icon: LinkIcon, 
-             category: "Vault", 
-             action: () => { window.open(doc.data().url, '_blank'); setIsOpen(false); } 
-          }))
-          .filter(l => l.title.toLowerCase().includes(q));
+        const linkResults = lSnap.docs.map(doc => ({ 
+           id: doc.id, 
+           title: doc.data().title, 
+           icon: LinkIcon, 
+           category: "Vault", 
+           action: () => { 
+              logInteraction({ title: doc.data().title, url: doc.data().url, category: "Vault" });
+              window.open(doc.data().url, '_blank'); 
+              setIsOpen(false); 
+           } 
+        }));
 
-        driveResults = dSnap.docs
-          .map(doc => {
-             const data = doc.data();
-             const Icon = data.type === "Sheet" ? Table : data.type === "Form" ? Database : data.type === "Slide" ? Presentation : FileText;
-             return { 
-                id: doc.id, 
-                title: data.title, 
-                icon: Icon, 
-                category: "Local Archive", 
-                action: () => { window.open(data.url, '_blank'); setIsOpen(false); } 
-             };
-          })
-          .filter(d => d.title.toLowerCase().includes(q));
+        const driveResultsRaw = dSnap.docs.map(doc => {
+           const data = doc.data();
+           const Icon = data.type === "Sheet" ? Table : data.type === "Form" ? Database : data.type === "Slide" ? Presentation : FileText;
+           return { 
+              id: doc.id, 
+              title: data.title, 
+              icon: Icon, 
+              category: "Local Archive", 
+              action: () => { 
+                 logInteraction({ title: data.title, url: data.url, category: "Drive", type: data.type });
+                 window.open(data.url, '_blank'); 
+                 setIsOpen(false); 
+              },
+              raw: { ...data, id: doc.id, collection: "drive" }
+           };
+        });
 
-        // Deep Search (External GDrive)
-        if (gdriveToken && q.length > 2) {
-           const gResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=name contains '${q}' and trashed = false&fields=files(id, name, mimeType, webViewLink)&pageSize=5`, {
-              headers: { Authorization: `Bearer ${gdriveToken}` }
-           });
-           const gData = await gResponse.json();
-           if (gData.files) {
-              const deepResults = gData.files.map((file: any) => {
-                 let Icon = FileText;
-                 if (file.mimeType.includes("spreadsheet")) Icon = Table;
-                 if (file.mimeType.includes("presentation")) Icon = Presentation;
-                 if (file.mimeType.includes("folder")) Icon = Folder;
-                 
-                 return {
-                    id: file.id,
-                    title: file.name,
-                    icon: Icon,
-                    category: "Deep Search findings",
-                    // Main action now ONLY opens the file
-                    action: () => { 
-                       window.open(file.webViewLink, '_blank'); 
-                       setIsOpen(false); 
-                    },
-                    // Metadata for manual sync
-                    source: "gdrive",
-                    raw: file
-                 };
+        const allLocalPool = [...projectResults, ...todoResults, ...linkResults, ...driveResultsRaw];
+        const lowerQ = q.toLowerCase();
+
+        // --- @Mention Suggestions ---
+        if (q.includes("@")) {
+          const lastAtIndex = q.lastIndexOf("@");
+          const mentionQuery = q.substring(lastAtIndex + 1).split(" ")[0].toLowerCase();
+          
+          if (mentionQuery.length >= 0) {
+            allLocalPool
+              .filter(item => item.title.toLowerCase().includes(mentionQuery))
+              .slice(0, 5)
+              .forEach(item => {
+                smartResults.push({
+                  id: `mention-${item.id}`,
+                  title: `INSERT: @${item.title}`,
+                  icon: item.icon,
+                  category: "Suggestions",
+                  action: () => {
+                    const before = q.substring(0, lastAtIndex);
+                    const after = q.substring(lastAtIndex + 1 + mentionQuery.length);
+                    const newQuery = before + "@" + item.title + " " + after;
+                    setQueryText(newQuery);
+                    setTimeout(() => inputRef.current?.focus(), 10);
+                  }
+                });
               });
-              driveResults = [...driveResults, ...deepResults];
-           }
+          }
         }
 
+        // --- NLP Smart Commands ---
+        // Matcher for Delete
+        if (lowerQ.startsWith("delete ") || lowerQ.startsWith("del ")) {
+          const target = lowerQ.replace(/delete |del /i, "").replace(/@/g, "").trim();
+          if (target.length > 1) {
+            const bestMatch = allLocalPool.find(item => item.title.toLowerCase().includes(target));
+            if (bestMatch) {
+              const isConfirming = confirmingId === `nlp-del-${bestMatch.id}`;
+              smartResults.push({
+                id: `nlp-del-${bestMatch.id}`,
+                title: isConfirming ? `⚠️ ARE YOU SURE? (Click to delete ${bestMatch.title})` : `CONFIRM DELETE: ${bestMatch.title}`,
+                icon: Trash2,
+                category: "Calculated Action",
+                action: () => {
+                  if (isConfirming) {
+                    handleAction("delete_res", bestMatch.id, { 
+                      collection: bestMatch.category === "Projects" ? "projects" : 
+                                 bestMatch.category === "Tasks" ? "todos" : 
+                                 bestMatch.category === "Vault" ? "links" : "drive",
+                      name: bestMatch.title
+                    });
+                    setConfirmingId(null);
+                  } else {
+                    setConfirmingId(`nlp-del-${bestMatch.id}`);
+                  }
+                }
+              });
+            }
+          }
+        }
+
+        // Matcher for Rename
+        if (lowerQ.startsWith("rename ") && lowerQ.includes(" to ")) {
+          const parts = lowerQ.replace("rename ", "").split(" to ");
+          const target = parts[0].replace(/@/g, "").trim();
+          const newName = parts[1].replace(/@/g, "").trim();
+          if (target.length > 1 && newName.length > 1) {
+            const bestMatch = allLocalPool.find(item => item.title.toLowerCase().includes(target));
+            if (bestMatch) {
+              smartResults.push({
+                id: `nlp-ren-${bestMatch.id}`,
+                title: `RENAME: "${bestMatch.title}" → "${newName}"`,
+                icon: Edit3,
+                category: "Calculated Action",
+                action: () => handleAction("rename_res", bestMatch.id, { 
+                  collection: bestMatch.category === "Projects" ? "projects" : 
+                             bestMatch.category === "Tasks" ? "todos" : 
+                             bestMatch.category === "Vault" ? "links" : "drive",
+                  newName 
+                })
+              });
+            }
+          }
+        }
+
+        // Update UI states
+        uiProjects = projectResults.filter(p => p.title.toLowerCase().includes(q));
+        uiTodos = todoResults.filter(t => t.title.toLowerCase().includes(q));
+        uiLinks = linkResults.filter(l => l.title.toLowerCase().includes(q));
+        uiDrive = driveResultsRaw.filter(d => d.title.toLowerCase().includes(q));
+
+        if (gdriveToken && q.length > 2) {
+          try {
+            const gResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=name contains '${q}' and trashed = false&fields=files(id, name, mimeType, webViewLink)&pageSize=5`, {
+              headers: { Authorization: `Bearer ${gdriveToken}` }
+            });
+            const gData = await gResponse.json();
+            if (gData.files) {
+              const deepResults = gData.files.map((file: any) => {
+                let Icon = FileText;
+                if (file.mimeType.includes("spreadsheet")) Icon = Table;
+                if (file.mimeType.includes("presentation")) Icon = Presentation;
+                if (file.mimeType.includes("folder")) Icon = Folder;
+                return {
+                  id: file.id,
+                  title: file.name,
+                  icon: Icon,
+                  category: "Deep Search findings",
+                  action: () => { 
+                    logInteraction({ title: file.name, url: file.webViewLink, category: "Deep Search findings", type: file.mimeType });
+                    window.open(file.webViewLink, '_blank'); 
+                    setIsOpen(false); 
+                  },
+                  source: "gdrive",
+                  raw: file
+                };
+              });
+              uiDrive = [...uiDrive, ...deepResults];
+            }
+          } catch (ge) {
+            console.error("GDrive search failed", ge);
+          }
+        }
       } catch (e: any) {
         console.error("Global search failed", e);
       }
 
-      setResults([...smartResults, ...filteredNav, ...projectResults, ...todoResults, ...linkResults, ...driveResults]);
+      setResults([...smartResults, ...filteredNav, ...uiProjects, ...uiTodos, ...uiLinks, ...uiDrive]);
     };
 
     const timer = setTimeout(searchEverything, 150);
     return () => clearTimeout(timer);
-  }, [queryText, isOpen, user, router]);
+  }, [queryText, isOpen, user, router, gdriveToken, confirmingId]);
 
   const handleAction = async (type: string, content: string, meta?: any) => {
     if (!user || isProcessing) return;
@@ -264,17 +349,40 @@ export default function CommandPalette() {
             projectTag: "Inbox",
             createdAt: serverTimestamp(),
          });
-         // Don't redirect if it's a deep search sync (we stay in the flow or open new tab)
          if (!meta.title) {
             router.push("/drive");
          } else {
-            showToast(`"${meta.title}" synced to local archive`, "success");
+             showToast(`"${meta.title}" synced to local archive`, "success");
          }
-      }
-      setIsOpen(false);
-      setQueryText("");
+       } else if (type === "delete_res") {
+          await deleteDoc(doc(db, `users/${user.uid}/${meta.collection}`, content));
+          showToast(`Deleted: ${meta.name}`, "error");
+       } else if (type === "rename_res") {
+          const field = (meta.collection === "todos" || meta.collection === "links" || meta.collection === "drive") ? "title" : "name";
+          await updateDoc(doc(db, `users/${user.uid}/${meta.collection}`, content), {
+             [field]: meta.newName,
+             updatedAt: serverTimestamp()
+          });
+          showToast(`Renamed to "${meta.newName}"`, "success");
+       } else if (type === "move_res") {
+          await updateDoc(doc(db, `users/${user.uid}/${meta.collection}`, content), {
+             projectId: meta.targetId,
+             projectTag: meta.targetName,
+             updatedAt: serverTimestamp()
+          });
+          showToast(`Moved to ${meta.targetName}`, "success");
+       } else if (type === "update_field") {
+          await updateDoc(doc(db, `users/${user.uid}/${meta.collection}`, content), {
+             [meta.field]: meta.value,
+             updatedAt: serverTimestamp()
+          });
+          showToast(`Updated ${meta.field} to ${meta.value}`, "success");
+       }
+       setIsOpen(false);
+       setQueryText("");
     } catch (e) {
       console.error(e);
+      showToast("Action failed", "error");
     } finally {
       setIsProcessing(false);
     }
@@ -317,11 +425,12 @@ export default function CommandPalette() {
             exit={{ opacity: 0, scale: 0.99, y: -10 }}
             className="bg-zinc-900/95 backdrop-blur-3xl w-full max-w-[600px] rounded-2xl shadow-2xl overflow-hidden pointer-events-auto border border-zinc-800/50 flex flex-col relative z-10"
           >
-            <div className="flex items-center px-8 py-6 gap-4">
+            <div className="flex items-center px-8 py-6 gap-4 border-b border-zinc-800/50">
+              <Search className="text-zinc-500" size={20} />
               <input 
                 ref={inputRef}
                 type="text"
-                placeholder="Type a command or paste a link..."
+                placeholder="Type a command or use @ to mention items..."
                 className="w-full bg-transparent border-none outline-none text-xl font-medium tracking-tight text-white placeholder:text-zinc-700"
                 value={queryText}
                 onChange={(e) => setQueryText(e.target.value)}
@@ -329,11 +438,11 @@ export default function CommandPalette() {
               />
             </div>
 
-            <div className="max-h-[400px] overflow-y-auto custom-scrollbar p-3">
+            <div className="max-h-[460px] overflow-y-auto custom-scrollbar p-3">
               {results.length > 0 ? (
                 Object.entries(groupedResults).map(([category, items]: [string, any]) => (
-                  <div key={category} className="mb-4">
-                    <div className="px-4 text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">{category}</div>
+                  <div key={category} className="mb-4 last:mb-0">
+                    <div className="px-4 text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 py-1">{category}</div>
                     {items.map((item: any) => {
                       const isSelected = results.indexOf(item) === selectedIndex;
                       return (
@@ -341,46 +450,22 @@ export default function CommandPalette() {
                           key={item.id}
                           onClick={() => item.action()}
                           className={cn(
-                             "w-full flex items-center px-4 py-3 gap-4 rounded-xl transition-all text-left cursor-pointer group",
-                             isSelected ? "bg-primary text-white" : "text-zinc-400 hover:bg-zinc-800/20 hover:text-white"
+                             "w-full flex items-center px-4 py-3 gap-4 rounded-xl transition-all text-left cursor-pointer group relative",
+                             isSelected ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-zinc-400 hover:bg-zinc-800/40 hover:text-white"
                           )}
                         >
-                          <item.icon size={18} className={cn("shrink-0", isSelected ? "text-white" : "text-zinc-500 group-hover:text-zinc-300")} />
-                          <span className="font-medium text-sm capitalize truncate flex-1">{item.title}</span>
+                          <div className={cn(
+                            "w-8 h-8 rounded-lg flex items-center justify-center transition-colors",
+                            isSelected ? "bg-white/20" : "bg-zinc-800 group-hover:bg-zinc-700"
+                          )}>
+                             <item.icon size={16} className={cn(isSelected ? "text-white" : "text-zinc-400 group-hover:text-zinc-200")} />
+                          </div>
+                          <span className="font-medium text-sm truncate flex-1">{item.title}</span>
                           
                           <div className={cn(
                              "flex items-center gap-2 opacity-0 transition-all duration-200 group-hover:opacity-100", 
                              isSelected && "opacity-100"
                           )}>
-                             {item.source === "gdrive" && (
-                                <>
-                                   <button 
-                                      onClick={(e) => { 
-                                         e.stopPropagation(); 
-                                         handleAction("drive", item.raw.webViewLink, { 
-                                            type: item.raw.mimeType.includes("spreadsheet") ? "Sheet" : item.raw.mimeType.includes("presentation") ? "Slide" : item.raw.mimeType.includes("folder") ? "Folder" : "Doc", 
-                                            title: item.title 
-                                         });
-                                      }}
-                                      className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors flex items-center gap-1.5 border border-white/10"
-                                      title="Add to Drive"
-                                   >
-                                      <HardDrive size={12} />
-                                      <span className="text-[10px] font-bold uppercase">Drive</span>
-                                   </button>
-                                   <button 
-                                      onClick={(e) => { 
-                                         e.stopPropagation(); 
-                                         handleAction("link", item.raw.webViewLink);
-                                      }}
-                                      className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors flex items-center gap-1.5 border border-white/10"
-                                      title="Save to Vault"
-                                   >
-                                      <LinkIcon size={12} />
-                                      <span className="text-[10px] font-bold uppercase">Vault</span>
-                                   </button>
-                                </>
-                             )}
                              <ArrowRight size={14} className={cn("opacity-40", isSelected && "translate-x-1")} />
                           </div>
                         </div>
@@ -389,33 +474,26 @@ export default function CommandPalette() {
                   </div>
                 ))
               ) : (
-                <div className="py-12 text-center text-zinc-700 text-sm font-medium">No results found</div>
+                <div className="py-12 text-center">
+                  <p className="text-zinc-500 text-sm font-medium">No results found for "{queryText}"</p>
+                  <p className="text-zinc-700 text-xs mt-1">Try @-mentions or a simpler query</p>
+                </div>
               )}
             </div>
 
-            <div className="px-8 py-4 bg-zinc-950/50 border-t border-zinc-800/50 flex items-center justify-between">
-               <div className="flex gap-4">
-                  <div className="flex items-center gap-1.5">
-                     <kbd className="px-1.5 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-[10px] font-bold text-zinc-500">↑↓</kbd>
-                     <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Navigate</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                     <kbd className="px-1.5 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-[10px] font-bold text-zinc-500">Enter</kbd>
-                     <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Select</span>
-                  </div>
-               </div>
-               
-               <div className="flex gap-4 opacity-40 hover:opacity-100 transition-opacity">
-                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mr-2">System Shortcuts:</span>
-                  <div className="flex items-center gap-1.5">
-                     <kbd className="px-1.5 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-[10px] font-bold text-zinc-500">^C</kbd>
-                     <span className="text-[9px] font-bold text-zinc-600 uppercase">Copy</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                     <kbd className="px-1.5 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-[10px] font-bold text-zinc-500">^V</kbd>
-                     <span className="text-[9px] font-bold text-zinc-600 uppercase">Link</span>
-                  </div>
-               </div>
+            <div className="px-8 py-3 bg-zinc-950/50 border-t border-zinc-800/50 flex items-center gap-6">
+              <div className="flex items-center gap-2">
+                <kbd className="px-1.5 py-0.5 rounded border border-zinc-700 bg-zinc-800 text-[10px] text-zinc-400 font-mono">↑↓</kbd>
+                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Navigate</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <kbd className="px-1.5 py-0.5 rounded border border-zinc-700 bg-zinc-800 text-[10px] text-zinc-400 font-mono">Enter</kbd>
+                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Execute</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <kbd className="px-1.5 py-0.5 rounded border border-zinc-700 bg-zinc-800 text-[10px] text-zinc-400 font-mono">@</kbd>
+                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Mention</span>
+              </div>
             </div>
           </motion.div>
         </div>

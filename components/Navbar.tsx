@@ -13,7 +13,8 @@ import {
   User,
   LogOut,
   Command as CommandIcon,
-  Folder
+  Folder,
+  Clock
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ const navItems = [
   { name: "drive", href: "/drive", icon: HardDrive },
   { name: "projects", href: "/projects", icon: Folder },
   { name: "notes", href: "/notes", icon: StickyNote },
+  { name: "history", href: "/history", icon: Clock },
 ];
 
 export default function Navbar() {

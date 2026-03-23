@@ -25,7 +25,9 @@ import {
   Database,
   FileText,
   Presentation,
-  FolderOpen
+  FolderOpen,
+  Clock,
+  History
 } from "lucide-react";
 import { 
   collection, 
@@ -45,8 +47,6 @@ import { useContextMenu } from "@/context/ContextMenuContext";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import LandingPage from "@/components/LandingPage";
-
 const typeStyles = {
   Sheet: { color: "#16A34A", icon: Table, bg: "rgba(22, 163, 74, 0.1)" },
   Form: { color: "#9333EA", icon: Database, bg: "rgba(147, 51, 234, 0.1)" },
@@ -65,6 +65,7 @@ export default function Dashboard() {
   const [pinnedLinks, setPinnedLinks] = useState<any[]>([]);
   const [recentNotes, setRecentNotes] = useState<any[]>([]);
   const [recentDrive, setRecentDrive] = useState<any[]>([]);
+  const [recentHistory, setRecentHistory] = useState<any[]>([]);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [quickInput, setQuickInput] = useState("");
   const [isCapturing, setIsCapturing] = useState(false);
@@ -103,7 +104,10 @@ export default function Dashboard() {
       const driveQ = query(collection(db, `users/${user.uid}/drive`), orderBy("createdAt", "desc"), limit(3));
       const unsubDrive = onSnapshot(driveQ, (s) => setRecentDrive(s.docs.map(d => ({id: d.id, ...d.data()}))));
 
-      return () => { unsubTodos(); unsubLinks(); unsubNotes(); unsubDrive(); };
+      const historyQ = query(collection(db, `users/${user.uid}/history`), orderBy("timestamp", "desc"), limit(3));
+      const unsubHistory = onSnapshot(historyQ, (s) => setRecentHistory(s.docs.map(d => ({id: d.id, ...d.data()}))));
+
+      return () => { unsubTodos(); unsubLinks(); unsubNotes(); unsubDrive(); unsubHistory(); };
     }
   }, [user]);
 
@@ -231,12 +235,12 @@ export default function Dashboard() {
           className="relative group"
         >
           <div className="absolute inset-y-0 left-6 flex items-center pointer-events-none">
-            <Plus size={18} className="text-zinc-600 group-focus-within:text-primary transition-colors" />
+            <Plus size={18} className="text-zinc-700 group-focus-within:text-primary transition-colors" />
           </div>
           <input 
             type="text"
             placeholder="Initialize new objective..."
-            className="w-full bg-zinc-900/40 border border-zinc-800/80 rounded-2xl py-5 pl-16 pr-6 text-xl font-bold tracking-tight text-white placeholder:text-zinc-800 outline-none focus:border-primary focus:bg-zinc-900/60 transition-all backdrop-blur-sm"
+            className="w-full bg-zinc-900/40 border border-zinc-800/80 rounded-2xl py-5 pl-16 pr-6 text-xl font-bold tracking-tight text-white placeholder:text-zinc-400 outline-none focus:border-primary focus:bg-zinc-900/60 transition-all backdrop-blur-sm"
             value={quickInput}
             onChange={(e) => setQuickInput(e.target.value)}
             disabled={isCapturing}
@@ -490,6 +494,39 @@ export default function Dashboard() {
                {!recentNotes.length && (
                   <div className="py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-800">No recent notes</div>
                )}
+            </div>
+          </motion.div>
+
+          {/* 4. ACTIVITY TIMELINE (Right Side, Below Tasks) */}
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+            className="lg:col-span-6 lg:col-start-7 lg:row-span-1 glass-card rounded-2xl p-6 flex flex-col gap-4 border border-zinc-800/80 shadow-glow shadow-primary/0 hover:shadow-primary/5 transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Activity Timeline</h2>
+              <Link href="/history" className="text-[9px] font-black uppercase tracking-widest text-primary hover:underline">View All</Link>
+            </div>
+            <div className="flex flex-col gap-2">
+              {recentHistory.length > 0 ? recentHistory.map(item => (
+                <div key={item.id} className="flex items-center gap-3 p-1.5 rounded-lg border border-transparent hover:border-zinc-800/50 transition-all group">
+                   <div className="w-7 h-7 rounded-lg bg-zinc-950/50 flex items-center justify-center shrink-0 border border-zinc-900 group-hover:border-primary/30 transition-colors">
+                      {item.category === "Vault" ? <LinkIcon size={12} className="text-zinc-600" /> : 
+                       item.category === "Drive" ? <HardDrive size={12} className="text-zinc-600" /> :
+                       <Search size={12} className="text-zinc-600" />}
+                   </div>
+                   <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-bold text-zinc-300 truncate tracking-tight">{item.title}</p>
+                      <p className="text-[8px] font-black uppercase tracking-wider text-zinc-600 mt-0.5">{item.category}</p>
+                   </div>
+                   <a href={item.url} target="_blank" rel="noopener noreferrer" className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-zinc-500 hover:text-white">
+                      <ArrowUpRight size={14} />
+                   </a>
+                </div>
+              )) : (
+                <div className="py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-800">No recent activity</div>
+              )}
             </div>
           </motion.div>
 
