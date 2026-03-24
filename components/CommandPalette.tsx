@@ -53,6 +53,7 @@ export default function CommandPalette() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [hoveredItem, setHoveredItem] = useState<any>(null);
+  const [avatarError, setAvatarError] = useState(false);
   
   const { user, logOut, gdriveToken, signInWithGoogleDrive } = useAuth();
   const { showToast } = useToast();
@@ -87,6 +88,8 @@ export default function CommandPalette() {
       inputRef.current?.focus();
       setSelectedIndex(0);
       setConfirmingId(null);
+      setHoveredItem(null);
+      setAvatarError(false);
       // If opened via wake word, we might want to start listening for command immediately
     }
   }, [isOpen]);
@@ -597,7 +600,10 @@ export default function CommandPalette() {
                           onClick={() => item.action()}
                           onMouseEnter={() => {
                             setSelectedIndex(results.indexOf(item));
-                            setHoveredItem(item);
+                            if (hoveredItem?.id !== item.id) {
+                              setHoveredItem(item);
+                              setAvatarError(false);
+                            }
                           }}
                           onMouseLeave={() => setHoveredItem(null)}
                           className={cn(
@@ -757,26 +763,21 @@ export default function CommandPalette() {
                           </div>
                           
                           {hoveredItem.raw.lastModifyingUser && (
-                            <div className="p-4 rounded-2xl bg-gradient-to-r from-zinc-900/50 to-transparent border border-white/5 flex items-center gap-3">
-                               <div className="relative w-8 h-8">
-                                 {hoveredItem.raw.lastModifyingUser.photoLink ? (
+                            <div className="p-4 rounded-2xl bg-gradient-to-r from-zinc-900/50 to-transparent border border-white/5 flex items-center gap-3 shadow-inner">
+                               <div className="relative w-8 h-8 flex-shrink-0">
+                                 {hoveredItem.raw.lastModifyingUser.photoLink && !avatarError ? (
                                    <img 
                                       src={hoveredItem.raw.lastModifyingUser.photoLink} 
                                       alt="" 
                                       className="w-full h-full rounded-full border border-white/10" 
-                                      onError={(e) => {
-                                        (e.target as HTMLImageElement).style.display = 'none';
-                                        (e.target as HTMLImageElement).parentElement?.querySelector('.avatar-fallback')?.classList.remove('hidden');
-                                      }}
+                                      onError={() => setAvatarError(true)}
                                    />
-                                 ) : null}
-                                 <div className={cn(
-                                   "avatar-fallback w-full h-full rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center",
-                                   hoveredItem.raw.lastModifyingUser.photoLink ? "hidden" : "flex"
-                                 )}>
-                                   <User size={14} className="text-zinc-500" />
-                                 </div>
-                                 <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-zinc-950" />
+                                 ) : (
+                                   <div className="w-full h-full rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center">
+                                     <User size={14} className="text-zinc-500" />
+                                   </div>
+                                 )}
+                                 <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-zinc-950 shadow-sm" />
                                </div>
                                <div className="min-w-0">
                                  <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Contributed By</p>
