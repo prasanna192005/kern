@@ -10,13 +10,14 @@ import {
 } from "lucide-react";
 import { 
   collection, query, addDoc, serverTimestamp, limit,
-  doc, deleteDoc, updateDoc, onSnapshot
+  doc, deleteDoc, updateDoc, onSnapshot, getDoc
 } from "firebase/firestore";
 import Fuse from "fuse.js";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/context/ToastContext";
+import { useUndoStack } from "@/hooks/useUndoStack";
 
 // ─── Frequency / Recency Scoring ────────────────────────────
 const FREQ_KEY = "kern_cmd_freq";
@@ -63,6 +64,7 @@ export default function CommandPalette() {
   
   const { user, gdriveToken, signInWithGoogleDrive, clearDriveToken } = useAuth();
   const { showToast } = useToast();
+  const undoStack = useUndoStack();
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [isListening, setIsListening] = useState(false);
@@ -104,10 +106,20 @@ export default function CommandPalette() {
     const fn = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setIsOpen(p => !p); }
       if (e.key === "Escape") { setIsOpen(false); setQueryText(""); }
+      // Global Cmd+Z undo
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey && !isOpenRef.current) {
+        e.preventDefault();
+        if (undoStack.canUndo()) {
+          const peeked = undoStack.peek();
+          const label = peeked?.type === "delete" ? "Restoring..." : peeked?.type === "rename" ? "Undoing rename..." : "Undoing move...";
+          showToast(label, "info");
+          undoStack.undo(user?.uid ?? "");
+        }
+      }
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
-  }, []);
+  }, [undoStack, user]);
 
   useEffect(() => {
     if (isOpen) { inputRef.current?.focus(); setSelectedIndex(0); setConfirmingId(null); freqMap.current = getFreqMap(); }
@@ -150,28 +162,60 @@ export default function CommandPalette() {
         case "link":
           await addDoc(collection(db, `users/${user.uid}/links`), { title: act.payload, url: act.payload.startsWith("http") ? act.payload : `https://${act.payload}`, category: "Inbox", createdAt: serverTimestamp() });
           showToast("Saved to Vault", "success"); break;
-        case "delete":
+        case "delete": {
+          // Capture full snapshot before deleting for undo
+          const snap = await getDoc(doc(db, `users/${user.uid}/${act.collection}`, act.docId));
+          const snapshot = snap.exists() ? snap.data() : {};
           await deleteDoc(doc(db, `users/${user.uid}/${act.collection}`, act.docId));
-          showToast("Deleted", "error"); break;
+          undoStack.push({ type: "delete", collection: act.collection, docId: act.docId, snapshot });
+          showToast(`Deleted`, "error", {
+            onUndo: async () => {
+              await undoStack.undo(user.uid);
+              showToast("Restored", "success");
+            },
+            undoLabel: "Undo"
+          });
+          break;
+        }
         case "rename": {
-          const field = act.collection === "projects" ? "name" : "title";
-          await updateDoc(doc(db, `users/${user.uid}/${act.collection}`, act.docId), { [field]: act.newName, updatedAt: serverTimestamp() });
-          showToast(`Renamed to "${act.newName}"`, "success"); break;
+          const renField = act.collection === "projects" ? "name" : "title";
+          const oldSnap = await getDoc(doc(db, `users/${user.uid}/${act.collection}`, act.docId));
+          const oldValue = oldSnap.exists() ? (oldSnap.data()[renField] ?? "") : "";
+          await updateDoc(doc(db, `users/${user.uid}/${act.collection}`, act.docId), { [renField]: act.newName, updatedAt: serverTimestamp() });
+          undoStack.push({ type: "rename", collection: act.collection, docId: act.docId, field: renField, oldValue });
+          showToast(`Renamed to "${act.newName}"`, "success", {
+            onUndo: async () => {
+              await undoStack.undo(user.uid);
+              showToast(`Restored to "${oldValue}"`, "success");
+            },
+            undoLabel: "Undo"
+          });
+          break;
         }
         case "move": {
-          // If destination is a known Project, set projectId + label field
-          // Otherwise just update the label field
           const isDestProject = act.destCategory === "Projects";
           const moveField = act.collection === "drive" ? "projectTag" : "category";
+          const oldSnap = await getDoc(doc(db, `users/${user.uid}/${act.collection}`, act.docId));
+          const oldData = oldSnap.exists() ? oldSnap.data() : {};
+          const oldValue = oldData[moveField] ?? "";
+          const oldProjectId = oldData.projectId;
           const update: Record<string, any> = { updatedAt: serverTimestamp() };
           if (isDestProject && act.destId) {
             update.projectId = act.destId;
-            update[moveField] = act.dest; // also set the label
+            update[moveField] = act.dest;
           } else {
             update[moveField] = act.dest;
           }
           await updateDoc(doc(db, `users/${user.uid}/${act.collection}`, act.docId), update);
-          showToast(`Moved to ${act.dest}`, "success"); break;
+          undoStack.push({ type: "move", collection: act.collection, docId: act.docId, field: moveField, oldValue, oldProjectId });
+          showToast(`Moved to ${act.dest}`, "success", {
+            onUndo: async () => {
+              await undoStack.undo(user.uid);
+              showToast(`Moved back`, "success");
+            },
+            undoLabel: "Undo"
+          });
+          break;
         }
         case "import_vault":
           await addDoc(collection(db, `users/${user.uid}/links`), { title: act.title, url: act.url, category: "Imported", createdAt: serverTimestamp() });
