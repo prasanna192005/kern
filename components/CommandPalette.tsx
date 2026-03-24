@@ -196,6 +196,17 @@ export default function CommandPalette() {
         });
       }
 
+      // Add: Suggest connecting GDrive for deep search if not connected
+      if (!gdriveToken && q.length > 1) {
+        smartResults.push({
+          id: "connect-gdrive-deep",
+          title: `Connect Google Drive to enable Deep Search for "${q}"`,
+          icon: Database,
+          category: "Integration",
+          action: () => { signInWithGoogleDrive(); setIsOpen(false); }
+        });
+      }
+
       // Action: Add Todo
       if ((q.startsWith("todo ") || q.startsWith("task ") || q.length > 3) && !q.includes(".") && !q.includes("@")) {
         const title = q.replace(/todo |task /i, "");

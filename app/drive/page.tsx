@@ -49,7 +49,7 @@ const typeStyles = {
 };
 
 export default function DrivePage() {
-  const { user, loading } = useAuth();
+  const { user, loading, gdriveToken, signInWithGoogleDrive } = useAuth();
   const router = useRouter();
   const { showMenu } = useContextMenu();
   const { logInteraction } = useHistory();
@@ -209,6 +209,21 @@ export default function DrivePage() {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
+          {!gdriveToken ? (
+            <button 
+              onClick={signInWithGoogleDrive}
+              className="bg-primary/10 text-primary border border-primary/20 px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-primary/20 transition-all flex items-center gap-2 shadow-glow shadow-primary/5"
+            >
+              <Database size={18} />
+              Connect Google Drive
+            </button>
+          ) : (
+            <div className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-4 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Drive Connected
+            </div>
+          )}
+          
           <button 
             onClick={() => {
               setForm({ title: "", url: "", projectTag: "General", type: "Doc", notes: "", projectId: "" });
