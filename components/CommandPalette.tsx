@@ -61,7 +61,7 @@ export default function CommandPalette() {
   const [localPool, setLocalPool] = useState<any[]>([]);
   const [tabHint, setTabHint] = useState<string | null>(null); // ghost text
   
-  const { user, gdriveToken, signInWithGoogleDrive } = useAuth();
+  const { user, gdriveToken, signInWithGoogleDrive, clearDriveToken } = useAuth();
   const { showToast } = useToast();
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -353,8 +353,14 @@ export default function CommandPalette() {
       if (gdriveToken && q.length > 2 && !q.includes("@") && !q.includes("http")) {
         try {
           const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=name contains '${q}' and trashed = false&fields=files(id,name,mimeType,webViewLink,thumbnailLink)&pageSize=5`, { headers: { Authorization: `Bearer ${gdriveToken}` } });
-          const data = await res.json();
-          if (data.files) deep = data.files.map((f: any) => ({ id: f.id, type: "open", url: f.webViewLink, title: f.name, icon: FileText, category: "Deep Search findings", raw: f }));
+          if (res.status === 401) {
+            // Token expired — clear it, prompt reconnect
+            clearDriveToken();
+            deep = [{ id: "gdrive-reconnect", title: "Drive session expired — click to reconnect", icon: Database, category: "Action Required", _internal: () => { setIsOpen(false); signInWithGoogleDrive?.(); } }];
+          } else {
+            const data = await res.json();
+            if (data.files) deep = data.files.map((f: any) => ({ id: f.id, type: "open", url: f.webViewLink, title: f.name, icon: FileText, category: "Deep Search findings", raw: f }));
+          }
         } catch {}
       }
 

@@ -17,8 +17,11 @@ interface AuthContextType {
   gdriveToken: string | null;
   signInWithGoogle: () => Promise<void>;
   signInWithGoogleDrive: () => void;
+  clearDriveToken: () => void;
   logOut: () => Promise<void>;
 }
+
+const TOKEN_EXPIRY_MS = 55 * 60 * 1000; // 55 min (tokens last 1h, we refresh early)
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
@@ -26,6 +29,7 @@ const AuthContext = createContext<AuthContextType>({
   gdriveToken: null,
   signInWithGoogle: async () => {},
   signInWithGoogleDrive: () => {},
+  clearDriveToken: () => {},
   logOut: async () => {},
 });
 
@@ -36,9 +40,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const { showToast } = useToast();
 
   useEffect(() => {
-    // Check for existing token
+    // Restore token only if it hasn't expired
     const savedToken = sessionStorage.getItem("gdrive_token");
-    if (savedToken) setGdriveToken(savedToken);
+    const savedExpiry = sessionStorage.getItem("gdrive_token_expiry");
+    if (savedToken && savedExpiry && Date.now() < parseInt(savedExpiry)) {
+      setGdriveToken(savedToken);
+    } else {
+      // Token expired — clear stale data
+      sessionStorage.removeItem("gdrive_token");
+      sessionStorage.removeItem("gdrive_token_expiry");
+    }
   }, []);
 
   useEffect(() => {
@@ -78,6 +89,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           if (response.access_token) {
             setGdriveToken(response.access_token);
             sessionStorage.setItem("gdrive_token", response.access_token);
+            sessionStorage.setItem("gdrive_token_expiry", String(Date.now() + TOKEN_EXPIRY_MS));
             showToast("Google Drive Connected", "success");
           }
         },
@@ -93,18 +105,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const clearDriveToken = () => {
+    setGdriveToken(null);
+    sessionStorage.removeItem("gdrive_token");
+    sessionStorage.removeItem("gdrive_token_expiry");
+  };
+
   const logOut = async () => {
     try {
       await signOut(auth);
-      setGdriveToken(null);
-      sessionStorage.removeItem("gdrive_token");
+      clearDriveToken();
     } catch (error) {
       console.error("Error signing out:", error);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, gdriveToken, signInWithGoogle, signInWithGoogleDrive, logOut }}>
+    <AuthContext.Provider value={{ user, loading, gdriveToken, signInWithGoogle, signInWithGoogleDrive, clearDriveToken, logOut }}>
       {children}
     </AuthContext.Provider>
   );
