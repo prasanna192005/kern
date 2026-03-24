@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { 
   Search, LayoutDashboard, CheckSquare, Link as LinkIcon, HardDrive, 
   StickyNote, FileText, Table, Presentation, ArrowRight, Folder,
-  Database, Trash2, Mic, Edit2, MoveRight, Zap
+  Database, Trash2, Mic, Edit2, MoveRight, Zap, Sparkles, Copy
 } from "lucide-react";
 import { 
   collection, query, addDoc, serverTimestamp, limit,
@@ -223,6 +223,34 @@ export default function CommandPalette() {
         case "import_drive":
           await addDoc(collection(db, `users/${user.uid}/drive`), { title: act.title, url: act.url, type: act.fileType || "Doc", createdAt: serverTimestamp() });
           showToast("Linked to Drive", "success"); break;
+        case "frame": {
+          setIsProcessing(true);
+          try {
+            const res = await fetch("/api/frame", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: act.payload, tone: act.tone }),
+            });
+            const data = await res.json();
+            if (data.framed) {
+              await navigator.clipboard.writeText(data.framed);
+              showToast("Framed & Copied to Clipboard", "success", {
+                onUndo: async () => {
+                  await navigator.clipboard.writeText(act.payload);
+                  showToast("Original text restored to clipboard", "success");
+                },
+                undoLabel: "Revert"
+              });
+            } else {
+              showToast(data.error || "Framing failed", "error");
+            }
+          } catch (err) {
+            showToast("AI Service unreachable", "error");
+          } finally {
+            setIsProcessing(false);
+          }
+          break;
+        }
         default: {
           bumpFreq(act.id);
           const nav: Record<string, string> = { Projects: `/projects/${act.id}`, Tasks: "/todos", Knowledge: "/notes" };
@@ -398,6 +426,15 @@ export default function CommandPalette() {
           id: "c-note", title: `New Note: ${content}`, icon: StickyNote, category: "Action",
           _internal: async () => { setIsOpen(false); setQueryText(""); await addDoc(collection(db, `users/${user.uid}/notes`), { content, createdAt: serverTimestamp() }); showToast("Note saved", "success"); }
         });
+      }
+
+      const frameMatch = q.match(/^frame:\s*(?:(formal|casual|lowercase)\s+)?(.*)/i);
+      if (frameMatch) {
+        const tone = frameMatch[1]?.toLowerCase() || "balanced";
+        const text = frameMatch[2]?.trim();
+        if (text) {
+          smart.push({ id: "c-frame", type: "frame", tone, payload: text, title: `AI Frame (${tone}): ${text}`, icon: Sparkles, category: "AI Logic" });
+        }
       }
 
       if (/^https?:\/\//.test(q)) {
