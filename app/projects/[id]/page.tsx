@@ -19,7 +19,8 @@ import {
   Database,
   FileText,
   Presentation,
-  FolderOpen
+  FolderOpen,
+  RotateCcw
 } from "lucide-react";
 import { 
   collection, 
@@ -29,7 +30,9 @@ import {
   doc,
   getDoc,
   deleteDoc,
-  updateDoc
+  updateDoc,
+  addDoc,
+  serverTimestamp
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useRouter, useParams } from "next/navigation";
@@ -37,6 +40,7 @@ import { useToast } from "@/context/ToastContext";
 import { useLinking } from "@/context/LinkingContext";
 import { useContextMenu } from "@/context/ContextMenuContext";
 import { useKeyboardActions } from "@/hooks/useKeyboardActions";
+import { cn } from "@/lib/utils";
 
 const typeStyles = {
   Sheet: { color: "#16A34A", icon: Table, bg: "rgba(22, 163, 74, 0.1)" },
@@ -60,6 +64,7 @@ export default function ProjectDetailsPage() {
   const [driveItems, setDriveItems] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hoveredResource, setHoveredResource] = useState<any>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null); // "vault" | "drive"
 
   useKeyboardActions({
     onCopy: () => {
@@ -98,6 +103,59 @@ export default function ProjectDetailsPage() {
       clearRef();
     } catch (e) {
       showToast("Linking Failed", "error");
+    }
+  };
+
+  const onDragStart = (e: React.DragEvent, item: any, source: "vault" | "drive") => {
+    e.dataTransfer.setData("application/json", JSON.stringify({ item, source }));
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const onDragOver = (e: React.DragEvent, target: "vault" | "drive") => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move"; // Explicitly set the cursor to 'move'
+    setDragOverTarget(target);
+  };
+
+  const onDrop = async (e: React.DragEvent, target: "vault" | "drive") => {
+    e.preventDefault();
+    setDragOverTarget(null);
+    if (!user) return;
+
+    try {
+      const rawData = e.dataTransfer.getData("application/json");
+      if (!rawData) return;
+      const { item, source } = JSON.parse(rawData);
+
+      if (source === target) return; // same collection
+
+      const sourceColl = source === "vault" ? "links" : "drive";
+      const targetColl = target === "vault" ? "links" : "drive";
+
+      // 1. Create in Target
+      const newDocData: any = {
+        title: item.title,
+        url: item.url,
+        projectId: params.id,
+        createdAt: serverTimestamp(),
+      };
+
+      if (target === "drive") {
+        newDocData.projectTag = project?.name?.toUpperCase() || "GENERAL";
+        newDocData.type = "Link"; // Mark as Link when coming from Vault
+      } else {
+        newDocData.category = project?.name || "General";
+      }
+
+      await addDoc(collection(db, `users/${user.uid}/${targetColl}`), newDocData);
+
+      // 2. Delete from Source
+      await deleteDoc(doc(db, `users/${user.uid}/${sourceColl}`, item.id));
+
+      showToast(`Moved to ${target === "vault" ? "Vault" : "Drive"}`, "success");
+    } catch (error) {
+      console.error("Drop failed:", error);
+      showToast("Transfer Failed", "error");
     }
   };
 
@@ -226,11 +284,21 @@ export default function ProjectDetailsPage() {
               <span className="text-[10px] font-bold text-zinc-700">{links.length} objects</span>
            </div>
 
-           <div className="flex flex-col gap-3">
+            <div 
+              className={cn(
+                "flex flex-col gap-3 p-4 rounded-3xl transition-all border-2 border-transparent relative",
+                dragOverTarget === "vault" ? "bg-primary/10 border-primary/40 border-dashed scale-[1.01] shadow-[0_0_20px_rgba(var(--primary-rgb),0.2)]" : ""
+              )}
+              onDragOver={(e) => onDragOver(e, "vault")}
+              onDrop={(e) => onDrop(e, "vault")}
+              onDragLeave={() => setDragOverTarget(null)}
+            >
               {links.map((link, i) => (
                 <motion.a 
                   key={link.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
                   href={link.url} target="_blank" rel="noopener noreferrer"
+                  draggable={true}
+                  onDragStartCapture={(e: any) => onDragStart(e, link, "vault")}
                   onMouseEnter={() => setHoveredResource({ ...link, type: "link" })}
                   onMouseLeave={() => setHoveredResource(null)}
                   onContextMenu={(e) => {
@@ -246,10 +314,10 @@ export default function ProjectDetailsPage() {
                       }}
                     ], link.title || "Untitled Resource");
                   }}
-                  className="glass-card flex items-center gap-6 p-5 rounded-2xl border border-zinc-800/50 hover:border-primary/30 group transition-all cursor-context-menu"
+                  className="glass-card flex items-center gap-6 p-5 rounded-2xl border border-zinc-800/50 hover:border-primary/30 group transition-all cursor-grab active:cursor-grabbing"
                 >
                   <div className="w-12 h-12 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center group-hover:bg-primary/5 transition-all">
-                    <img src={`https://www.google.com/s2/favicons?sz=64&domain=${new URL(link.url).hostname}`} alt="" className="w-6 h-6 grayscale group-hover:grayscale-0 transition-all opacity-60 group-hover:opacity-100" />
+                    <img src={`https://www.google.com/s2/favicons?sz=64&domain=${new URL(link.url).hostname}`} alt="" className="w-6 h-6 transition-all" />
                   </div>
                   <div className="flex-1">
                     <h3 className="text-base font-bold text-white group-hover:text-primary transition-colors truncate">{link.title || "Unnamed Link"}</h3>
@@ -275,11 +343,21 @@ export default function ProjectDetailsPage() {
               <span className="text-[10px] font-bold text-zinc-700">{driveItems.length} objects</span>
            </div>
 
-           <div className="flex flex-col gap-3">
+            <div 
+              className={cn(
+                "flex flex-col gap-3 p-4 rounded-3xl transition-all border-2 border-transparent relative",
+                dragOverTarget === "drive" ? "bg-secondary/10 border-secondary/40 border-dashed scale-[1.01] shadow-[0_0_20px_rgba(var(--secondary-rgb),0.2)]" : ""
+              )}
+              onDragOver={(e) => onDragOver(e, "drive")}
+              onDrop={(e) => onDrop(e, "drive")}
+              onDragLeave={() => setDragOverTarget(null)}
+            >
               {driveItems.map((file, i) => (
                 <motion.a 
                   key={file.id} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
                   href={file.url} target="_blank" rel="noopener noreferrer"
+                  draggable={true}
+                  onDragStartCapture={(e: any) => onDragStart(e, file, "drive")}
                   onMouseEnter={() => setHoveredResource({ ...file, type: "drive" })}
                   onMouseLeave={() => setHoveredResource(null)}
                   onContextMenu={(e) => {
@@ -295,7 +373,7 @@ export default function ProjectDetailsPage() {
                       }}
                     ], file.title || "Untitled Drive Item");
                   }}
-                  className="glass-card flex items-center gap-6 p-5 rounded-2xl border border-zinc-800/50 hover:border-secondary/30 group transition-all cursor-context-menu"
+                  className="glass-card flex items-center gap-6 p-5 rounded-2xl border border-zinc-800/50 hover:border-secondary/30 group transition-all cursor-grab active:cursor-grabbing"
                 >
                   <div 
                     className="w-12 h-12 rounded-xl border border-zinc-900 bg-zinc-950 flex items-center justify-center shrink-0 group-hover:bg-zinc-900 transition-all"

@@ -38,7 +38,7 @@ const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL
     } else if (tone === "casual") {
       toneInstruction = "Rewrite the text in a casual, friendly tone. Natural. Result only.";
     } else if (tone === "lowercase") {
-      toneInstruction = "Rewrite the text in all lowercase letters. Result only.";
+      toneInstruction = "Rewrite the text in professional, formal tone and all lowercase letters. Result only.";
     }
 
     // 4. API Request
